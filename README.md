@@ -1,2 +1,2 @@
 # Wine.PLUS
-Várias compilações (buildroot) do Wine, Proton, etc... para 
+Buildroot compilations for Wine, Proton, etc ... for Batocera.PLUS.

@@ -1,0 +1,6 @@
+MODULE    = wdfldr.sys
+IMPORTS   = ntoskrnl
+EXTRADLLFLAGS = -mno-cygwin -Wl,--subsystem,native
+
+C_SRCS = \
+	wdfldr.c

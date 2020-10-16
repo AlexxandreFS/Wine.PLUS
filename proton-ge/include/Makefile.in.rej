@@ -1,0 +1,10 @@
+--- include/Makefile.in
++++ include/Makefile.in
+@@ -772,6 +772,7 @@ SOURCES = \
+ 	wtypes.idl \
+ 	wuapi.idl \
+ 	x3daudio.h \
++	xact3wb.h \
+ 	xapo.idl \
+ 	xapofx.h \
+ 	xaudio2.idl \

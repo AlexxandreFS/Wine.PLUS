@@ -36,14 +36,12 @@
 #include "file.h"
 #include "thread.h"
 #include "request.h"
-#include "esync.h"
 
 /* command-line options */
 int debug_level = 0;
 int foreground = 0;
 timeout_t master_socket_timeout = 3 * -TICKS_PER_SEC;  /* master socket timeout, default is 3 seconds */
 const char *server_argv0;
-
 
 /* parse-line args */
 
@@ -142,15 +140,12 @@ int main( int argc, char *argv[] )
     sock_init();
     open_master_socket();
 
-    if (do_esync())
-        esync_init();
-
     if (debug_level) fprintf( stderr, "wineserver: starting (pid=%ld)\n", (long) getpid() );
+    set_current_time();
     init_scheduler();
     init_signals();
     init_directories();
     init_registry();
-    init_shared_memory();
     init_types();
     main_loop();
     return 0;

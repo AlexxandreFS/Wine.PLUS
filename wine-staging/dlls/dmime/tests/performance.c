@@ -82,6 +82,7 @@ static HRESULT test_InitAudio(void)
     IDirectSound *dsound;
     IDirectMusicPort *port;
     IDirectMusicAudioPath *path;
+    DWORD channel, group;
     HRESULT hr;
     ULONG ref;
 
@@ -101,11 +102,12 @@ static HRESULT test_InitAudio(void)
         return hr;
     }
 
-    port = NULL;
     hr = IDirectMusicPerformance8_PChannelInfo(performance, 128, &port, NULL, NULL);
     ok(hr == E_INVALIDARG, "PChannelInfo failed, got %08x\n", hr);
     hr = IDirectMusicPerformance8_PChannelInfo(performance, 127, &port, NULL, NULL);
-    todo_wine ok(hr == S_OK, "PChannelInfo failed, got %08x\n", hr);
+    ok(hr == S_OK, "PChannelInfo failed, got %08x\n", hr);
+    IDirectMusicPort_Release(port);
+    port = NULL;
     hr = IDirectMusicPerformance8_PChannelInfo(performance, 0, &port, NULL, NULL);
     ok(hr == S_OK, "PChannelInfo failed, got %08x\n", hr);
     ok(port != NULL, "IDirectMusicPort not set\n");
@@ -113,8 +115,7 @@ static HRESULT test_InitAudio(void)
     todo_wine ok(hr == DMUS_E_AUDIOPATHS_IN_USE, "AssignPChannel failed (%08x)\n", hr);
     hr = IDirectMusicPerformance8_AssignPChannelBlock(performance, 0, port, 0);
     todo_wine ok(hr == DMUS_E_AUDIOPATHS_IN_USE, "AssignPChannelBlock failed (%08x)\n", hr);
-    if (port)
-        IDirectMusicPort_Release(port);
+    IDirectMusicPort_Release(port);
 
     hr = IDirectMusicPerformance8_GetDefaultAudioPath(performance, &path);
     ok(hr == S_OK, "Failed to call GetDefaultAudioPath (%x)\n", hr);
@@ -216,6 +217,18 @@ static HRESULT test_InitAudio(void)
     ok(ref == 2, "dmusic ref count got %d expected 2\n", ref);
     destroy_performance(performance, dmusic, dsound);
 
+    /* InitAudio with perf channel count not a multiple of 16 rounds up */
+    create_performance(&performance, NULL, NULL, TRUE);
+    hr = IDirectMusicPerformance8_InitAudio(performance, NULL, NULL, NULL,
+            DMUS_APATH_SHARED_STEREOPLUSREVERB, 29, DMUS_AUDIOF_ALL, NULL);
+    ok(hr == S_OK, "InitAudio failed: %08x\n", hr);
+    hr = IDirectMusicPerformance8_PChannelInfo(performance, 31, &port, &group, &channel);
+    ok(hr == S_OK && group == 2 && channel == 15,
+            "PChannelInfo failed, got %08x, %u, %u\n", hr, group, channel);
+    hr = IDirectMusicPerformance8_PChannelInfo(performance, 32, &port, NULL, NULL);
+    ok(hr == E_INVALIDARG, "PChannelInfo failed, got %08x\n", hr);
+    destroy_performance(performance, NULL, NULL);
+
     return S_OK;
 }
 
@@ -270,35 +283,27 @@ static void test_createport(void)
 
     /* dwValidParams == 0 -> S_OK, filled struct */
     portparams.dwValidParams = 0;
-    hr = IDirectMusic_CreatePort(music, &CLSID_DirectMusicSynth,
-            &portparams, &port, NULL);
+    hr = IDirectMusic_CreatePort(music, &CLSID_DirectMusicSynth, &portparams, &port, NULL);
     ok(hr == S_OK, "CreatePort failed: %08x\n", hr);
     ok(port != NULL, "Didn't get IDirectMusicPort pointer\n");
-
+    todo_wine ok(portparams.dwValidParams, "portparams struct was not filled in\n");
     IDirectMusicPort_Release(port);
     port = NULL;
-
-    todo_wine ok(portparams.dwValidParams != 0, "portparams struct was not filled in\n");
 
     /* dwValidParams != 0, invalid param -> S_FALSE, filled struct */
     portparams.dwValidParams = DMUS_PORTPARAMS_CHANNELGROUPS;
     portparams.dwChannelGroups = 0;
-    hr = IDirectMusic_CreatePort(music, &CLSID_DirectMusicSynth,
-            &portparams, &port, NULL);
+    hr = IDirectMusic_CreatePort(music, &CLSID_DirectMusicSynth, &portparams, &port, NULL);
     todo_wine ok(hr == S_FALSE, "CreatePort failed: %08x\n", hr);
     ok(port != NULL, "Didn't get IDirectMusicPort pointer\n");
-
+    ok(portparams.dwValidParams, "portparams struct was not filled in\n");
     IDirectMusicPort_Release(port);
     port = NULL;
 
-    ok(portparams.dwValidParams != 0, "portparams struct was not filled in\n");
-
     /* dwValidParams != 0, valid params -> S_OK */
-    hr = IDirectMusic_CreatePort(music, &CLSID_DirectMusicSynth,
-            &portparams, &port, NULL);
+    hr = IDirectMusic_CreatePort(music, &CLSID_DirectMusicSynth, &portparams, &port, NULL);
     ok(hr == S_OK, "CreatePort failed: %08x\n", hr);
     ok(port != NULL, "Didn't get IDirectMusicPort pointer\n");
-
     IDirectMusicPort_Release(port);
     port = NULL;
 
@@ -307,11 +312,9 @@ static void test_createport(void)
     hr = IDirectMusic_CreatePort(music, &GUID_NULL, &portparams, &port, NULL);
     ok(hr == S_OK, "CreatePort failed: %08x\n", hr);
     ok(port != NULL, "Didn't get IDirectMusicPort pointer\n");
-
+    todo_wine ok(portparams.dwValidParams, "portparams struct was not filled in\n");
     IDirectMusicPort_Release(port);
     port = NULL;
-
-    todo_wine ok(portparams.dwValidParams != 0, "portparams struct was not filled in\n");
 
     /* null GUID fails */
     portparams.dwValidParams = 0;
@@ -342,7 +345,7 @@ static void test_pchannel(void)
     unsigned int i;
     HRESULT hr;
 
-    create_performance(&perf, NULL, NULL, FALSE);
+    create_performance(&perf, NULL, NULL, TRUE);
     hr = IDirectMusicPerformance8_Init(perf, NULL, NULL, NULL);
     ok(hr == S_OK, "Init failed: %08x\n", hr);
     hr = IDirectMusicPerformance8_PChannelInfo(perf, 0, &port, NULL, NULL);
@@ -607,6 +610,31 @@ static void test_notification_type(void)
     IDirectMusicPerformance8_Release(perf);
 }
 
+static void test_performance_graph(void)
+{
+    HRESULT hr;
+    IDirectMusicPerformance8 *perf;
+    IDirectMusicGraph *graph = NULL, *graph2;
+
+    create_performance(&perf, NULL, NULL, FALSE);
+    hr = IDirectMusicPerformance8_Init(perf, NULL, NULL, NULL);
+    ok(hr == S_OK, "Init failed: %08x\n", hr);
+
+    hr = IDirectMusicPerformance8_GetGraph(perf, NULL);
+    ok(hr == E_POINTER, "Failed: %08x\n", hr);
+
+    hr = IDirectMusicPerformance8_GetGraph(perf, &graph2);
+    ok(hr == DMUS_E_NOT_FOUND, "Failed: %08x\n", hr);
+    ok(graph2 == NULL, "unexpected pointer.\n");
+
+    hr = IDirectMusicPerformance8_QueryInterface(perf, &IID_IDirectMusicGraph, (void**)&graph);
+    todo_wine ok(hr == S_OK, "Failed: %08x\n", hr);
+
+    if (graph)
+        IDirectMusicGraph_Release(graph);
+    destroy_performance(perf, NULL, NULL);
+}
+
 START_TEST( performance )
 {
     HRESULT hr;
@@ -627,6 +655,7 @@ START_TEST( performance )
     test_createport();
     test_pchannel();
     test_notification_type();
+    test_performance_graph();
 
     CoUninitialize();
 }

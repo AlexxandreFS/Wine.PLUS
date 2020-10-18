@@ -597,20 +597,21 @@ static NvAPI_Status CDECL NvAPI_D3D9_RegisterResource(IDirect3DResource9* pResou
 
 static NvU32 get_video_memory(void)
 {
-    static NvU32 cache;
     struct wined3d_adapter_identifier identifier;
+    struct wined3d_adapter *adapter;
     struct wined3d *wined3d;
     HRESULT hr = E_FAIL;
+    static NvU32 cache;
 
     if (cache) return cache;
 
     memset(&identifier, 0, sizeof(identifier));
 
     wined3d_mutex_lock();
-    wined3d = wined3d_create(0);
-    if (wined3d)
+    if ((wined3d = wined3d_create(0)))
     {
-        hr = wined3d_get_adapter_identifier(wined3d, 0, 0, &identifier);
+        if ((adapter = wined3d_get_adapter(wined3d, 0)))
+            hr = wined3d_adapter_get_identifier(adapter, 0, &identifier);
         wined3d_decref(wined3d);
     }
     wined3d_mutex_unlock();

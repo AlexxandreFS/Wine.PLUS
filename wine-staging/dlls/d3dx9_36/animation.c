@@ -468,31 +468,32 @@ HRESULT WINAPI D3DXCreateAnimationController(UINT max_outputs, UINT max_sets,
     return D3D_OK;
 }
 
-struct d3dx9_animation_frame_set
+struct d3dx9_keyframed_animation_set
 {
     ID3DXKeyframedAnimationSet ID3DXKeyframedAnimationSet_iface;
     LONG ref;
 
-    char *name;
+    const char *name;
     double ticks_per_second;
     D3DXPLAYBACK_TYPE playback_type;
-    UINT animation_count;
-    UINT callback_key_count;
+    unsigned int animation_count;
+    unsigned int callback_key_count;
     const D3DXKEY_CALLBACK *callback_keys;
 };
 
-static inline struct d3dx9_animation_frame_set *impl_from_ID3DXKeyframedAnimationSet(ID3DXKeyframedAnimationSet *iface)
+static inline struct d3dx9_keyframed_animation_set *impl_from_ID3DXKeyframedAnimationSet(ID3DXKeyframedAnimationSet *iface)
 {
-    return CONTAINING_RECORD(iface, struct d3dx9_animation_frame_set, ID3DXKeyframedAnimationSet_iface);
+    return CONTAINING_RECORD(iface, struct d3dx9_keyframed_animation_set, ID3DXKeyframedAnimationSet_iface);
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_QueryInterface(ID3DXKeyframedAnimationSet *iface, REFIID riid, void **obj)
+static HRESULT WINAPI d3dx9_keyframed_animation_QueryInterface(ID3DXKeyframedAnimationSet *iface,
+        REFIID riid, void **obj)
 {
     TRACE("iface %p, riid %s, out %p.\n", iface, debugstr_guid(riid), obj);
 
-    if (IsEqualGUID(riid, &IID_IUnknown) ||
-        IsEqualGUID(riid, &IID_ID3DXAnimationSet) ||
-        IsEqualGUID(riid, &IID_ID3DXKeyframedAnimationSet))
+    if (IsEqualGUID(riid, &IID_IUnknown)
+            || IsEqualGUID(riid, &IID_ID3DXAnimationSet)
+            || IsEqualGUID(riid, &IID_ID3DXKeyframedAnimationSet))
     {
         iface->lpVtbl->AddRef(iface);
         *obj = iface;
@@ -504,340 +505,388 @@ static HRESULT WINAPI d3dx9_animation_framed_QueryInterface(ID3DXKeyframedAnimat
     return E_NOINTERFACE;
 }
 
-static ULONG WINAPI d3dx9_animation_framed_AddRef(ID3DXKeyframedAnimationSet *iface)
+static ULONG WINAPI d3dx9_keyframed_animation_AddRef(ID3DXKeyframedAnimationSet *iface)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    ULONG refcount = InterlockedIncrement(&framed->ref);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+    ULONG refcount = InterlockedIncrement(&set->ref);
 
-    TRACE("%p increasing refcount to %u.\n", framed, refcount);
+    TRACE("%p increasing refcount to %u.\n", set, refcount);
 
     return refcount;
 }
 
-static ULONG WINAPI d3dx9_animation_framed_Release(ID3DXKeyframedAnimationSet *iface)
+static ULONG WINAPI d3dx9_keyframed_animation_Release(ID3DXKeyframedAnimationSet *iface)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    ULONG refcount = InterlockedDecrement(&framed->ref);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+    ULONG refcount = InterlockedDecrement(&set->ref);
 
-    TRACE("%p decreasing refcount to %u.\n", framed, refcount);
+    TRACE("%p decreasing refcount to %u.\n", set, refcount);
 
     if (!refcount)
     {
-        heap_free(framed->name);
-        HeapFree(GetProcessHeap(), 0, framed);
+        heap_free((char *)set->name);
+        heap_free(set);
     }
 
     return refcount;
 }
 
-static const char * WINAPI d3dx9_animation_framed_GetName(ID3DXKeyframedAnimationSet *iface)
+static const char * WINAPI d3dx9_keyframed_animation_GetName(ID3DXKeyframedAnimationSet *iface)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    TRACE("framed %p.\n", framed);
-    return framed->name;
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    TRACE("set %p.\n", set);
+    return set->name;
 }
 
-static DOUBLE WINAPI d3dx9_animation_framed_GetPeriod(ID3DXKeyframedAnimationSet *iface)
+static double WINAPI d3dx9_keyframed_animation_GetPeriod(ID3DXKeyframedAnimationSet *iface)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p stub.\n", framed);
-    return 0.0f;
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p stub.\n", set);
+    return 0.0;
 }
 
-static DOUBLE WINAPI d3dx9_animation_framed_GetPeriodicPosition(ID3DXKeyframedAnimationSet *iface, DOUBLE position)
+static double WINAPI d3dx9_keyframed_animation_GetPeriodicPosition(ID3DXKeyframedAnimationSet *iface, double position)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p stub.\n", framed);
-    return 0.0f;
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, position %.16e stub.\n", set, position);
+    return 0.0;
 }
 
-static UINT WINAPI d3dx9_animation_framed_GetNumAnimations(ID3DXKeyframedAnimationSet *iface)
+static UINT WINAPI d3dx9_keyframed_animation_GetNumAnimations(ID3DXKeyframedAnimationSet *iface)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p stub.\n", framed);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p stub.\n", set);
     return 0;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetAnimationNameByIndex(ID3DXKeyframedAnimationSet *iface, UINT index, const char **name)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetAnimationNameByIndex(ID3DXKeyframedAnimationSet *iface,
+        UINT index, const char **name)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, name %p stub.\n", framed, name);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, index %u, name %p stub.\n", set, index, name);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetAnimationIndexByName(ID3DXKeyframedAnimationSet *iface, const char *name, UINT *index)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetAnimationIndexByName(ID3DXKeyframedAnimationSet *iface,
+        const char *name, UINT *index)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, name %s, index %p stub.\n", framed, debugstr_a(name), index);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, name %s, index %p stub.\n", set, debugstr_a(name), index);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetSRT(ID3DXKeyframedAnimationSet *iface, DOUBLE periodic_position, UINT animation, D3DXVECTOR3 *scale,
-        D3DXQUATERNION *rotation, D3DXVECTOR3 *translation)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetSRT(ID3DXKeyframedAnimationSet *iface, double periodic_position,
+        UINT animation, D3DXVECTOR3 *scale, D3DXQUATERNION *rotation, D3DXVECTOR3 *translation)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, periodic_position %f, animation %u, scale %p rotation %p translation %p stub.\n",
-            framed, periodic_position, animation, scale, rotation, translation);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, periodic_position %.16e, animation %u, scale %p, rotation %p, translation %p stub.\n",
+            set, periodic_position, animation, scale, rotation, translation);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetCallback(ID3DXKeyframedAnimationSet *iface, double position, DWORD flags, double *callback_position,
-        void **callback_data)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetCallback(ID3DXKeyframedAnimationSet *iface, double position,
+        DWORD flags, double *callback_position, void **callback_data)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, position %f, flags 0x%08x, callback_position %p, callback_data %p stub.\n",
-                framed, position, flags, callback_position, callback_data);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, position %.16e, flags %#x, callback_position %p, callback_data %p stub.\n",
+            set, position, flags, callback_position, callback_data);
     return E_NOTIMPL;
 }
 
-static D3DXPLAYBACK_TYPE WINAPI d3dx9_animation_framed_GetPlaybackType(ID3DXKeyframedAnimationSet *iface)
+static D3DXPLAYBACK_TYPE WINAPI d3dx9_keyframed_animation_GetPlaybackType(ID3DXKeyframedAnimationSet *iface)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    TRACE("framed %p.\n", framed);
-    return framed->playback_type;
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    TRACE("set %p.\n", set);
+    return set->playback_type;
 }
 
-static DOUBLE WINAPI d3dx9_animation_framed_GetSourceTicksPerSecond(ID3DXKeyframedAnimationSet *iface)
+static double WINAPI d3dx9_keyframed_animation_GetSourceTicksPerSecond(ID3DXKeyframedAnimationSet *iface)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    TRACE("framed %p.\n", framed);
-    return framed->ticks_per_second;
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    TRACE("set %p.\n", set);
+    return set->ticks_per_second;
 }
 
-static UINT WINAPI d3dx9_animation_framed_GetNumScaleKeys(ID3DXKeyframedAnimationSet *iface, UINT keys)
+static UINT WINAPI d3dx9_keyframed_animation_GetNumScaleKeys(ID3DXKeyframedAnimationSet *iface, UINT keys)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, keys %u stub.\n", framed, keys);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, keys %u stub.\n", set, keys);
     return 0;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetScaleKeys(ID3DXKeyframedAnimationSet *iface, UINT animation, LPD3DXKEY_VECTOR3 scale_keys)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetScaleKeys(ID3DXKeyframedAnimationSet *iface, UINT animation,
+        D3DXKEY_VECTOR3 *scale_keys)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, scale_keys %p stub.\n", framed, animation, scale_keys);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, scale_keys %p stub.\n", set, animation, scale_keys);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetScaleKey(ID3DXKeyframedAnimationSet *iface, UINT animation, UINT key, LPD3DXKEY_VECTOR3 scale_key)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetScaleKey(ID3DXKeyframedAnimationSet *iface, UINT animation,
+        UINT key, D3DXKEY_VECTOR3 *scale_key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, key %u, scale_key %p stub.\n", framed, animation, key, scale_key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, key %u, scale_key %p stub.\n", set, animation, key, scale_key);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_SetScaleKey(ID3DXKeyframedAnimationSet *iface, UINT animation, UINT key, LPD3DXKEY_VECTOR3 scale_key)
+static HRESULT WINAPI d3dx9_keyframed_animation_SetScaleKey(ID3DXKeyframedAnimationSet *iface, UINT animation,
+        UINT key, D3DXKEY_VECTOR3 *scale_key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, key %u, scale_key %p stub.\n", framed, animation, key, scale_key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, key %u, scale_key %p stub.\n", set, animation, key, scale_key);
     return E_NOTIMPL;
 }
 
-static UINT WINAPI d3dx9_animation_framed_GetNumRotationKeys(ID3DXKeyframedAnimationSet *iface, UINT animation)
+static UINT WINAPI d3dx9_keyframed_animation_GetNumRotationKeys(ID3DXKeyframedAnimationSet *iface, UINT animation)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u stub.\n", framed, animation);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u stub.\n", set, animation);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetRotationKeys(ID3DXKeyframedAnimationSet *iface, UINT animation, LPD3DXKEY_QUATERNION rotation_keys)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetRotationKeys(ID3DXKeyframedAnimationSet *iface,
+        UINT animation, D3DXKEY_QUATERNION *rotation_keys)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, rotation_keys %p stub.\n", framed, animation, rotation_keys);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, rotation_keys %p stub.\n", set, animation, rotation_keys);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetRotationKey(ID3DXKeyframedAnimationSet *iface, UINT animation, UINT key, LPD3DXKEY_QUATERNION rotation_key)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetRotationKey(ID3DXKeyframedAnimationSet *iface,
+        UINT animation, UINT key, D3DXKEY_QUATERNION *rotation_key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, key %u, rotation_key %p stub.\n", framed, animation, key, rotation_key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, key %u, rotation_key %p stub.\n", set, animation, key, rotation_key);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_SetRotationKey(ID3DXKeyframedAnimationSet *iface, UINT animation, UINT key, LPD3DXKEY_QUATERNION rotation_key)
+static HRESULT WINAPI d3dx9_keyframed_animation_SetRotationKey(ID3DXKeyframedAnimationSet *iface,
+        UINT animation, UINT key, D3DXKEY_QUATERNION *rotation_key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, key %u, rotation_key %p stub.\n", framed, animation, key, rotation_key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, key %u, rotation_key %p stub.\n", set, animation, key, rotation_key);
     return E_NOTIMPL;
 }
 
-static UINT WINAPI d3dx9_animation_framed_GetNumTranslationKeys(ID3DXKeyframedAnimationSet *iface, UINT animation)
+static UINT WINAPI d3dx9_keyframed_animation_GetNumTranslationKeys(ID3DXKeyframedAnimationSet *iface, UINT animation)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u stub.\n", framed, animation);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u stub.\n", set, animation);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetTranslationKeys(ID3DXKeyframedAnimationSet *iface, UINT animation, LPD3DXKEY_VECTOR3 translation_keys)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetTranslationKeys(ID3DXKeyframedAnimationSet *iface,
+        UINT animation, D3DXKEY_VECTOR3 *translation_keys)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, rotation_key %p stub.\n", framed, animation, translation_keys);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, translation_keys %p stub.\n", set, animation, translation_keys);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetTranslationKey(ID3DXKeyframedAnimationSet *iface, UINT animation, UINT key, LPD3DXKEY_VECTOR3 translation_key)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetTranslationKey(ID3DXKeyframedAnimationSet *iface,
+        UINT animation, UINT key, D3DXKEY_VECTOR3 *translation_key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, key %u, translation_key %p stub.\n", framed, animation, key, translation_key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, key %u, translation_key %p stub.\n", set, animation, key, translation_key);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_SetTranslationKey(ID3DXKeyframedAnimationSet *iface, UINT animation, UINT key, LPD3DXKEY_VECTOR3 translation_key)
+static HRESULT WINAPI d3dx9_keyframed_animation_SetTranslationKey(ID3DXKeyframedAnimationSet *iface,
+        UINT animation, UINT key, D3DXKEY_VECTOR3 *translation_key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, key %u, translation_key %p stub.\n", framed, animation, key, translation_key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, key %u, translation_key %p stub.\n", set, animation, key, translation_key);
     return E_NOTIMPL;
 }
 
-static UINT WINAPI d3dx9_animation_framed_GetNumCallbackKeys(ID3DXKeyframedAnimationSet *iface)
+static UINT WINAPI d3dx9_keyframed_animation_GetNumCallbackKeys(ID3DXKeyframedAnimationSet *iface)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p stub.\n", framed);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p stub.\n", set);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetCallbackKeys(ID3DXKeyframedAnimationSet *iface, LPD3DXKEY_CALLBACK callback_keys)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetCallbackKeys(ID3DXKeyframedAnimationSet *iface,
+        D3DXKEY_CALLBACK *callback_keys)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, callback_keys %p stub.\n", framed, callback_keys);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
 
+    FIXME("set %p, callback_keys %p stub.\n", set, callback_keys);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_GetCallbackKey(ID3DXKeyframedAnimationSet *iface, UINT key, LPD3DXKEY_CALLBACK callback_key)
+static HRESULT WINAPI d3dx9_keyframed_animation_GetCallbackKey(ID3DXKeyframedAnimationSet *iface,
+        UINT key, D3DXKEY_CALLBACK *callback_key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, key %u, callback_key %p stub.\n", framed, key, callback_key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, key %u, callback_key %p stub.\n", set, key, callback_key);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_SetCallbackKey(ID3DXKeyframedAnimationSet *iface, UINT key, LPD3DXKEY_CALLBACK callback_key)
+static HRESULT WINAPI d3dx9_keyframed_animation_SetCallbackKey(ID3DXKeyframedAnimationSet *iface,
+        UINT key, D3DXKEY_CALLBACK *callback_key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, key %u, callback_key %p stub.\n", framed, key, callback_key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, key %u, callback_key %p stub.\n", set, key, callback_key);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_UnregisterScaleKey(ID3DXKeyframedAnimationSet *iface, UINT animation, UINT key)
+static HRESULT WINAPI d3dx9_keyframed_animation_UnregisterScaleKey(ID3DXKeyframedAnimationSet *iface,
+        UINT animation, UINT key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, key %u stub.\n", framed, animation, key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, key %u stub.\n", set, animation, key);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_UnregisterRotationKey(ID3DXKeyframedAnimationSet *iface, UINT animation, UINT key)
+static HRESULT WINAPI d3dx9_keyframed_animation_UnregisterRotationKey(ID3DXKeyframedAnimationSet *iface,
+        UINT animation, UINT key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, key %u stub.\n", framed, animation, key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, key %u stub.\n", set, animation, key);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_UnregisterTranslationKey(ID3DXKeyframedAnimationSet *iface, UINT animation, UINT key)
+static HRESULT WINAPI d3dx9_keyframed_animation_UnregisterTranslationKey(ID3DXKeyframedAnimationSet *iface,
+        UINT animation, UINT key)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, animation %u, key %u stub.\n", framed, animation, key);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, animation %u, key %u stub.\n", set, animation, key);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_RegisterAnimationSRTKeys(ID3DXKeyframedAnimationSet *iface, const char *name, UINT num_scale_keys,
-        UINT num_rotation_keys, UINT num_translation_keys, const D3DXKEY_VECTOR3 *scale_keys,
-        const D3DXKEY_QUATERNION *rotation_keys, const D3DXKEY_VECTOR3 *translation_keys,
-        DWORD *animation_index)
+static HRESULT WINAPI d3dx9_keyframed_animation_RegisterAnimationSRTKeys(ID3DXKeyframedAnimationSet *iface,
+        const char *name, UINT scale_keys_count, UINT rotation_keys_count, UINT translation_keys_count,
+        const D3DXKEY_VECTOR3 *scale_keys, const D3DXKEY_QUATERNION *rotation_keys,
+        const D3DXKEY_VECTOR3 *translation_keys, DWORD *animation_index)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, name %s, num_scale_keys %u, num_rotation_keys %u, rotation_keys %p, num_translation_keys %u, scale_keys %p, "
-           "rotation_keys %u, translation_keys %p, animation_index %p stub.\n",
-                framed, debugstr_a(name), num_scale_keys, num_rotation_keys, rotation_keys, num_translation_keys, scale_keys,
-                rotation_keys, translation_keys, animation_index);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, name %s, scale_keys_count %u, rotation_keys_count %u, translation_keys_count %u, "
+            "scale_keys %p, rotation_keys %p, translation_keys %p, animation_index %p stub.\n",
+            set, debugstr_a(name), scale_keys_count, rotation_keys_count, translation_keys_count,
+            scale_keys, rotation_keys, translation_keys, animation_index);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_Compress(ID3DXKeyframedAnimationSet *iface, DWORD flags, float lossiness,
-        D3DXFRAME *hierarchy, ID3DXBuffer **compressed_data)
+static HRESULT WINAPI d3dx9_keyframed_animation_Compress(ID3DXKeyframedAnimationSet *iface,
+        DWORD flags, float lossiness, D3DXFRAME *hierarchy, ID3DXBuffer **compressed_data)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, flags 0x%08x, lossiness %f, hierarchy %p, compressed_data %p stub.\n", framed, flags, lossiness,
-            hierarchy, compressed_data);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, flags %#x, lossiness %.8e, hierarchy %p, compressed_data %p stub.\n",
+            set, flags, lossiness, hierarchy, compressed_data);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI d3dx9_animation_framed_UnregisterAnimation(ID3DXKeyframedAnimationSet *iface, UINT index)
+static HRESULT WINAPI d3dx9_keyframed_animation_UnregisterAnimation(ID3DXKeyframedAnimationSet *iface, UINT index)
 {
-    struct d3dx9_animation_frame_set *framed = impl_from_ID3DXKeyframedAnimationSet(iface);
-    FIXME("framed %p, index %u stub.\n", framed, index);
+    struct d3dx9_keyframed_animation_set *set = impl_from_ID3DXKeyframedAnimationSet(iface);
+
+    FIXME("set %p, index %u stub.\n", set, index);
     return E_NOTIMPL;
 }
 
-static const struct ID3DXKeyframedAnimationSetVtbl d3dx9_animation_framed_vtbl =
+static const struct ID3DXKeyframedAnimationSetVtbl d3dx9_keyframed_animation_vtbl =
 {
-    d3dx9_animation_framed_QueryInterface,
-    d3dx9_animation_framed_AddRef,
-    d3dx9_animation_framed_Release,
-    d3dx9_animation_framed_GetName,
-    d3dx9_animation_framed_GetPeriod,
-    d3dx9_animation_framed_GetPeriodicPosition,
-    d3dx9_animation_framed_GetNumAnimations,
-    d3dx9_animation_framed_GetAnimationNameByIndex,
-    d3dx9_animation_framed_GetAnimationIndexByName,
-    d3dx9_animation_framed_GetSRT,
-    d3dx9_animation_framed_GetCallback,
-    d3dx9_animation_framed_GetPlaybackType,
-    d3dx9_animation_framed_GetSourceTicksPerSecond,
-    d3dx9_animation_framed_GetNumScaleKeys,
-    d3dx9_animation_framed_GetScaleKeys,
-    d3dx9_animation_framed_GetScaleKey,
-    d3dx9_animation_framed_SetScaleKey,
-    d3dx9_animation_framed_GetNumRotationKeys,
-    d3dx9_animation_framed_GetRotationKeys,
-    d3dx9_animation_framed_GetRotationKey,
-    d3dx9_animation_framed_SetRotationKey,
-    d3dx9_animation_framed_GetNumTranslationKeys,
-    d3dx9_animation_framed_GetTranslationKeys,
-    d3dx9_animation_framed_GetTranslationKey,
-    d3dx9_animation_framed_SetTranslationKey,
-    d3dx9_animation_framed_GetNumCallbackKeys,
-    d3dx9_animation_framed_GetCallbackKeys,
-    d3dx9_animation_framed_GetCallbackKey,
-    d3dx9_animation_framed_SetCallbackKey,
-    d3dx9_animation_framed_UnregisterScaleKey,
-    d3dx9_animation_framed_UnregisterRotationKey,
-    d3dx9_animation_framed_UnregisterTranslationKey,
-    d3dx9_animation_framed_RegisterAnimationSRTKeys,
-    d3dx9_animation_framed_Compress,
-    d3dx9_animation_framed_UnregisterAnimation
+    d3dx9_keyframed_animation_QueryInterface,
+    d3dx9_keyframed_animation_AddRef,
+    d3dx9_keyframed_animation_Release,
+    d3dx9_keyframed_animation_GetName,
+    d3dx9_keyframed_animation_GetPeriod,
+    d3dx9_keyframed_animation_GetPeriodicPosition,
+    d3dx9_keyframed_animation_GetNumAnimations,
+    d3dx9_keyframed_animation_GetAnimationNameByIndex,
+    d3dx9_keyframed_animation_GetAnimationIndexByName,
+    d3dx9_keyframed_animation_GetSRT,
+    d3dx9_keyframed_animation_GetCallback,
+    d3dx9_keyframed_animation_GetPlaybackType,
+    d3dx9_keyframed_animation_GetSourceTicksPerSecond,
+    d3dx9_keyframed_animation_GetNumScaleKeys,
+    d3dx9_keyframed_animation_GetScaleKeys,
+    d3dx9_keyframed_animation_GetScaleKey,
+    d3dx9_keyframed_animation_SetScaleKey,
+    d3dx9_keyframed_animation_GetNumRotationKeys,
+    d3dx9_keyframed_animation_GetRotationKeys,
+    d3dx9_keyframed_animation_GetRotationKey,
+    d3dx9_keyframed_animation_SetRotationKey,
+    d3dx9_keyframed_animation_GetNumTranslationKeys,
+    d3dx9_keyframed_animation_GetTranslationKeys,
+    d3dx9_keyframed_animation_GetTranslationKey,
+    d3dx9_keyframed_animation_SetTranslationKey,
+    d3dx9_keyframed_animation_GetNumCallbackKeys,
+    d3dx9_keyframed_animation_GetCallbackKeys,
+    d3dx9_keyframed_animation_GetCallbackKey,
+    d3dx9_keyframed_animation_SetCallbackKey,
+    d3dx9_keyframed_animation_UnregisterScaleKey,
+    d3dx9_keyframed_animation_UnregisterRotationKey,
+    d3dx9_keyframed_animation_UnregisterTranslationKey,
+    d3dx9_keyframed_animation_RegisterAnimationSRTKeys,
+    d3dx9_keyframed_animation_Compress,
+    d3dx9_keyframed_animation_UnregisterAnimation
 };
 
 HRESULT WINAPI D3DXCreateKeyframedAnimationSet(const char *name, double ticks_per_second,
         D3DXPLAYBACK_TYPE playback_type, UINT animation_count, UINT callback_key_count,
         const D3DXKEY_CALLBACK *callback_keys, ID3DXKeyframedAnimationSet **animation_set)
 {
-    struct d3dx9_animation_frame_set *object;
+    struct d3dx9_keyframed_animation_set *object;
+    char *string;
 
     TRACE("name %s, ticks_per_second %.16e, playback_type %u, animation_count %u, "
             "callback_key_count %u, callback_keys %p, animation_set %p.\n",
             debugstr_a(name), ticks_per_second, playback_type, animation_count,
             callback_key_count, callback_keys, animation_set);
 
-    if(!animation_count)
+    if (!animation_count)
         return D3DERR_INVALIDCALL;
 
-    object = heap_alloc(sizeof(*object));
-    if (!object)
+    if (!(object = heap_alloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    object->ID3DXKeyframedAnimationSet_iface.lpVtbl = &d3dx9_animation_framed_vtbl;
+    object->ID3DXKeyframedAnimationSet_iface.lpVtbl = &d3dx9_keyframed_animation_vtbl;
     object->ref = 1;
-    object->name = heap_alloc( strlen(name)+1 );
-    if(!object->name)
+    if (!(string = heap_alloc(strlen(name) + 1)))
     {
         heap_free(object);
         return E_OUTOFMEMORY;
     }
-    strcpy(object->name, name);
-    object->ticks_per_second   = ticks_per_second;
-    object->playback_type      = playback_type;
-    object->animation_count    = animation_count;
+    strcpy(string, name);
+    object->name = string;
+    object->ticks_per_second = ticks_per_second;
+    object->playback_type = playback_type;
+    object->animation_count = animation_count;
     object->callback_key_count = callback_key_count;
-    object->callback_keys      = callback_keys;
+    object->callback_keys = callback_keys;
 
     *animation_set = &object->ID3DXKeyframedAnimationSet_iface;
 

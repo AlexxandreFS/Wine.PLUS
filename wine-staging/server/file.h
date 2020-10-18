@@ -99,11 +99,9 @@ extern obj_handle_t lock_fd( struct fd *fd, file_pos_t offset, file_pos_t count,
 extern void unlock_fd( struct fd *fd, file_pos_t offset, file_pos_t count );
 extern void allow_fd_caching( struct fd *fd );
 extern void set_fd_signaled( struct fd *fd, int signaled );
-extern int is_fd_signaled( struct fd *fd );
 extern char *dup_fd_name( struct fd *root, const char *name );
 
 extern int default_fd_signaled( struct object *obj, struct wait_queue_entry *entry );
-extern int default_fd_get_esync_fd( struct object *obj, enum esync_type *type );
 extern unsigned int default_fd_map_access( struct object *obj, unsigned int access );
 extern int default_fd_get_poll_events( struct fd *fd );
 extern void default_poll_event( struct fd *fd, int event );
@@ -130,11 +128,25 @@ static inline struct fd *get_obj_fd( struct object *obj ) { return obj->ops->get
 
 struct timeout_user;
 extern timeout_t current_time;
+extern timeout_t monotonic_time;
+extern struct _KUSER_SHARED_DATA *user_shared_data;
 
 #define TICKS_PER_SEC 10000000
 
 typedef void (*timeout_callback)( void *private );
 
+static inline abstime_t timeout_to_abstime( timeout_t timeout )
+{
+    return timeout > 0 ? timeout : timeout - monotonic_time;
+}
+
+static inline timeout_t abstime_to_timeout( abstime_t abstime )
+{
+    if (abstime > 0) return abstime;
+    return -abstime < monotonic_time ? 0 : abstime + monotonic_time;
+}
+
+extern void set_current_time( void );
 extern struct timeout_user *add_timeout_user( timeout_t when, timeout_callback func, void *private );
 extern void remove_timeout_user( struct timeout_user *user );
 extern const char *get_timeout_str( timeout_t timeout );
@@ -150,6 +162,7 @@ extern void file_set_error(void);
 extern struct object_type *file_get_type( struct object *obj );
 extern struct security_descriptor *mode_to_sd( mode_t mode, const SID *user, const SID *group );
 extern mode_t sd_to_mode( const struct security_descriptor *sd, const SID *owner );
+extern int is_file_executable( const char *name );
 extern int set_file_sd( struct object *obj, struct fd *fd, mode_t *mode, uid_t *uid,
                         const struct security_descriptor *sd, unsigned int set_info );
 extern struct security_descriptor *get_file_sd( struct object *obj, struct fd *fd, mode_t *mode,
@@ -157,27 +170,26 @@ extern struct security_descriptor *get_file_sd( struct object *obj, struct fd *f
 
 /* file mapping functions */
 
-extern struct mapping *get_mapping_obj( struct process *process, obj_handle_t handle,
-                                        unsigned int access );
 extern struct file *get_mapping_file( struct process *process, client_ptr_t base,
                                       unsigned int access, unsigned int sharing );
+extern const pe_image_info_t *get_mapping_image_info( struct process *process, client_ptr_t base );
 extern void free_mapped_views( struct process *process );
 extern int get_page_size(void);
+extern struct object *create_user_data_mapping( struct object *root, const struct unicode_str *name,
+                                                unsigned int attr, const struct security_descriptor *sd );
 
 /* device functions */
 
-extern struct object *create_named_pipe_device( struct object *root, const struct unicode_str *name );
-extern struct object *create_mailslot_device( struct object *root, const struct unicode_str *name );
+extern struct object *create_named_pipe_device( struct object *root, const struct unicode_str *name,
+                                                unsigned int attr, const struct security_descriptor *sd );
+extern struct object *create_mailslot_device( struct object *root, const struct unicode_str *name,
+                                              unsigned int attr, const struct security_descriptor *sd );
+extern struct object *create_console_device( struct object *root, const struct unicode_str *name,
+                                              unsigned int attr, const struct security_descriptor *sd );
+extern struct object *create_socket_device( struct object *root, const struct unicode_str *name,
+                                              unsigned int attr, const struct security_descriptor *sd );
 extern struct object *create_unix_device( struct object *root, const struct unicode_str *name,
-                                          const char *unix_path );
-
-/* shared memory functions */
-
-extern int allocate_shared_memory( int *fd, void **memory, size_t size );
-extern void release_shared_memory( int fd, void *memory, size_t size );
-extern void init_shared_memory( void );
-extern shmglobal_t *shmglobal;
-extern int          shmglobal_fd;
+                                          unsigned int attr, const struct security_descriptor *sd, const char *unix_path );
 
 /* change notification functions */
 

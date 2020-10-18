@@ -87,7 +87,6 @@
 #include "shlobj.h"
 #include "shellapi.h"
 #include "shlwapi.h"
-#include "wine/library.h"
 #include "wine/list.h"
 #include "wine/debug.h"
 #include "wine/unicode.h"
@@ -674,7 +673,7 @@ static HANDLE unicode_text_from_string( UINT codepage, const void *data, size_t 
     MultiByteToWideChar( codepage, 0, data, size, strW + count, count );
     for (i = j = 0; i < count; i++)
     {
-        if (strW[i + count] == '\n') strW[j++] = '\r';
+        if (strW[i + count] == '\n' && (!i || strW[i + count - 1] != '\r')) strW[j++] = '\r';
         strW[j++] = strW[i + count];
     }
     strW[j++] = 0;
@@ -1986,14 +1985,14 @@ static void xfixes_init(void)
     int major = 3, minor = 0;
     void *handle;
 
-    handle = wine_dlopen(SONAME_LIBXFIXES, RTLD_NOW, NULL, 0);
+    handle = dlopen(SONAME_LIBXFIXES, RTLD_NOW);
     if (!handle) return;
 
-    pXFixesQueryExtension = wine_dlsym(handle, "XFixesQueryExtension", NULL, 0);
+    pXFixesQueryExtension = dlsym(handle, "XFixesQueryExtension");
     if (!pXFixesQueryExtension) return;
-    pXFixesQueryVersion = wine_dlsym(handle, "XFixesQueryVersion", NULL, 0);
+    pXFixesQueryVersion = dlsym(handle, "XFixesQueryVersion");
     if (!pXFixesQueryVersion) return;
-    pXFixesSelectSelectionInput = wine_dlsym(handle, "XFixesSelectSelectionInput", NULL, 0);
+    pXFixesSelectSelectionInput = dlsym(handle, "XFixesSelectSelectionInput");
     if (!pXFixesSelectSelectionInput) return;
 
     if (!pXFixesQueryExtension(clipboard_display, &event_base, &error_base))

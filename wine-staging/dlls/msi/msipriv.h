@@ -42,7 +42,7 @@
 #include "winemsi.h"
 
 static const BOOL is_64bit = sizeof(void *) > sizeof(int);
-BOOL is_wow64 DECLSPEC_HIDDEN;
+extern BOOL is_wow64 DECLSPEC_HIDDEN;
 
 #define MSI_DATASIZEMASK 0x00ff
 #define MSITYPE_VALID    0x0100
@@ -222,7 +222,6 @@ typedef struct _column_info
     LPCWSTR table;
     LPCWSTR column;
     INT   type;
-    BOOL   temporary;
     struct expr *val;
     struct _column_info *next;
 } column_info;
@@ -337,7 +336,7 @@ typedef struct tagMSIVIEWOPS
     /*
      * add_column - adds a column to the table
      */
-    UINT (*add_column)( struct tagMSIVIEW *view, LPCWSTR table, UINT number, LPCWSTR column, UINT type, BOOL hold );
+    UINT (*add_column)( struct tagMSIVIEW *view, LPCWSTR column, INT type, BOOL hold );
 
     /*
      * sort - orders the table by columns
@@ -363,7 +362,7 @@ typedef struct msi_dialog_tag msi_dialog;
 
 enum platform
 {
-    PLATFORM_UNKNOWN,
+    PLATFORM_UNRECOGNIZED,
     PLATFORM_INTEL,
     PLATFORM_INTEL64,
     PLATFORM_X64,
@@ -545,6 +544,8 @@ typedef struct tagMSICOMPONENT
     unsigned int hasAdvertisedFeature:1;
     unsigned int hasLocalFeature:1;
     unsigned int hasSourceFeature:1;
+    unsigned int added:1;
+    unsigned int updated:1;
 } MSICOMPONENT;
 
 typedef struct tagComponentList
@@ -794,7 +795,7 @@ extern UINT write_stream_data( IStorage *stg, LPCWSTR stname,
                                LPCVOID data, UINT sz, BOOL bTable ) DECLSPEC_HIDDEN;
 
 /* transform functions */
-extern UINT msi_table_apply_transform( MSIDATABASE *db, IStorage *stg ) DECLSPEC_HIDDEN;
+extern UINT msi_table_apply_transform( MSIDATABASE *db, IStorage *stg, int err_cond ) DECLSPEC_HIDDEN;
 extern UINT MSI_DatabaseApplyTransformW( MSIDATABASE *db,
                  LPCWSTR szTransformFile, int iErrorCond ) DECLSPEC_HIDDEN;
 extern void append_storage_to_db( MSIDATABASE *db, IStorage *stg ) DECLSPEC_HIDDEN;

@@ -1143,6 +1143,8 @@ static HRESULT insert_static_object(ME_TextEditor *editor, HENHMETAFILE hemf, HB
       stgm.u.hBitmap = hbmp;
       fm.cfFormat = CF_BITMAP;
   }
+  else return E_FAIL;
+
   stgm.pUnkForRelease = NULL;
 
   fm.ptd = NULL;
@@ -2507,7 +2509,7 @@ static BOOL handle_enter(ME_TextEditor *editor)
                     para = editor->pBuffer->pFirst->member.para.next_para;
                     ME_SetDefaultParaFormat(editor, &para->member.para.fmt);
                     para->member.para.nFlags = 0;
-                    mark_para_rewrap(editor, para);
+                    para_mark_rewrap( editor, &para->member.para );
                     editor->pCursors[0].pPara = para;
                     editor->pCursors[0].pRun = ME_FindItemFwd(para, diRun);
                     editor->pCursors[1] = editor->pCursors[0];
@@ -3060,7 +3062,6 @@ ME_TextEditor *ME_MakeEditor(ITextHost *texthost, BOOL bEmulateVersion10)
   ed->bEmulateVersion10 = bEmulateVersion10;
   ed->styleFlags = 0;
   ed->exStyleFlags = 0;
-  ed->first_marked_para = NULL;
   ed->total_rows = 0;
   ITextHost_TxGetPropertyBits(texthost,
                               (TXTBIT_RICHTEXT|TXTBIT_MULTILINE|

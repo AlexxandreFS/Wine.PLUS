@@ -48,7 +48,7 @@ static ADDRESS_MODE get_selector_type(HANDLE hThread, const CONTEXT* ctx, WORD s
 }
 
 static BOOL i386_build_addr(HANDLE hThread, const CONTEXT* ctx, ADDRESS64* addr,
-                            unsigned seg, unsigned long offset)
+                            unsigned seg, ULONG_PTR offset)
 {
     addr->Mode    = AddrModeFlat;
     addr->Segment = seg;
@@ -213,16 +213,16 @@ static BOOL i386_stack_walk(struct cpu_stack_walk *csw, STACKFRAME64 *frame,
         /* Init done */
         set_curr_mode((frame->AddrPC.Mode == AddrModeFlat) ? stm_32bit : stm_16bit);
 
-        /* cur_switch holds address of SystemReserved1[0] field in TEB in debuggee
+        /* cur_switch holds address of WOW32Reserved field in TEB in debuggee
          * address space
          */
         if (NtQueryInformationThread(csw->hThread, ThreadBasicInformation, &info,
                                      sizeof(info), NULL) == STATUS_SUCCESS)
         {
-            curr_switch = (DWORD_PTR)info.TebBaseAddress + FIELD_OFFSET(TEB, SystemReserved1[0]);
+            curr_switch = (DWORD_PTR)info.TebBaseAddress + FIELD_OFFSET(TEB, WOW32Reserved);
             if (!sw_read_mem(csw, curr_switch, &p, sizeof(p)))
             {
-                WARN("Can't read TEB:SystemReserved1[0]\n");
+                WARN("Can't read TEB:WOW32Reserved\n");
                 goto done_err;
             }
             next_switch = p;
@@ -508,7 +508,7 @@ done_err:
     return FALSE;
 }
 
-static unsigned i386_map_dwarf_register(unsigned regno, BOOL eh_frame)
+static unsigned i386_map_dwarf_register(unsigned regno, const struct module* module, BOOL eh_frame)
 {
     unsigned    reg;
 
@@ -520,13 +520,11 @@ static unsigned i386_map_dwarf_register(unsigned regno, BOOL eh_frame)
     case  3: reg = CV_REG_EBX; break;
     case  4:
     case  5:
-#ifdef __APPLE__
         /* On OS X, DWARF eh_frame uses a different mapping for the registers.  It's
            apparently the mapping as emitted by GCC, at least at some point in its history. */
-        if (eh_frame)
+        if (eh_frame && module->type == DMT_MACHO)
             reg = (regno == 4) ? CV_REG_EBP : CV_REG_ESP;
         else
-#endif
             reg = (regno == 4) ? CV_REG_ESP : CV_REG_EBP;
         break;
     case  6: reg = CV_REG_ESI; break;
@@ -606,6 +604,16 @@ static void *i386_fetch_context_reg(union ctx *pctx, unsigned regno, unsigned *s
     case CV_REG_FS: *size = sizeof(ctx->SegFs); return &ctx->SegFs;
     case CV_REG_GS: *size = sizeof(ctx->SegGs); return &ctx->SegGs;
 
+    case CV_REG_XMM0 + 0: *size = 16; return &ctx->ExtendedRegisters[10*16];
+    case CV_REG_XMM0 + 1: *size = 16; return &ctx->ExtendedRegisters[11*16];
+    case CV_REG_XMM0 + 2: *size = 16; return &ctx->ExtendedRegisters[12*16];
+    case CV_REG_XMM0 + 3: *size = 16; return &ctx->ExtendedRegisters[13*16];
+    case CV_REG_XMM0 + 4: *size = 16; return &ctx->ExtendedRegisters[14*16];
+    case CV_REG_XMM0 + 5: *size = 16; return &ctx->ExtendedRegisters[15*16];
+    case CV_REG_XMM0 + 6: *size = 16; return &ctx->ExtendedRegisters[16*16];
+    case CV_REG_XMM0 + 7: *size = 16; return &ctx->ExtendedRegisters[17*16];
+
+    case CV_REG_MXCSR: *size = sizeof(DWORD); return &ctx->ExtendedRegisters[24];
     }
     FIXME("Unknown register %x\n", regno);
     return NULL;

@@ -67,19 +67,18 @@ static const struct object_ops handler_ops =
     no_add_queue,             /* add_queue */
     NULL,                     /* remove_queue */
     NULL,                     /* signaled */
-    NULL,                     /* get_esync_fd */
     NULL,                     /* satisfied */
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
     no_map_access,            /* map_access */
     default_get_sd,           /* get_sd */
     default_set_sd,           /* set_sd */
+    no_get_full_name,         /* get_full_name */
     no_lookup_name,           /* lookup_name */
     no_link_name,             /* link_name */
     NULL,                     /* unlink_name */
     no_open_file,             /* open_file */
     no_kernel_obj_list,       /* get_kernel_obj_list */
-    no_alloc_handle,          /* alloc_handle */
     no_close_handle,          /* close_handle */
     handler_destroy           /* destroy */
 };
@@ -128,7 +127,7 @@ static struct handler *create_handler( signal_callback callback )
         return NULL;
     }
     set_fd_events( handler->fd, POLLIN );
-    make_object_static( &handler->obj );
+    make_object_permanent( &handler->obj );
     return handler;
 }
 

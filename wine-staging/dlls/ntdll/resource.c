@@ -25,9 +25,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-#include "wine/port.h"
-
 #include <stdarg.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -43,7 +40,6 @@
 #include "ntdll_misc.h"
 #include "wine/asm.h"
 #include "wine/exception.h"
-#include "wine/unicode.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(resource);
@@ -145,14 +141,14 @@ static const IMAGE_RESOURCE_DIRECTORY *find_entry_by_name( const IMAGE_RESOURCE_
 
     if (IS_INTRESOURCE(name)) return find_entry_by_id( dir, LOWORD(name), root, want_dir );
     entry = (const IMAGE_RESOURCE_DIRECTORY_ENTRY *)(dir + 1);
-    namelen = strlenW(name);
+    namelen = wcslen(name);
     min = 0;
     max = dir->NumberOfNamedEntries - 1;
     while (min <= max)
     {
         pos = (min + max) / 2;
         str = (const IMAGE_RESOURCE_DIR_STRING_U *)((const char *)root + entry[pos].u.s.NameOffset);
-        res = strncmpW( name, str->NameString, str->Length );
+        res = wcsncmp( name, str->NameString, str->Length );
         if (!res && namelen == str->Length)
         {
             if (!entry[pos].u2.s2.DataIsDirectory == !want_dir)
@@ -311,7 +307,7 @@ NTSTATUS WINAPI DECLSPEC_HOTPATCH LdrFindResource_U( HMODULE hmod, const LDR_RES
 }
 
 
-/* don't penalize other platforms stuff needed on i386 for compatibility */
+/* don't penalize other platforms with stuff needed on i386 for compatibility */
 #ifdef __i386__
 NTSTATUS WINAPI DECLSPEC_HIDDEN access_resource( HMODULE hmod, const IMAGE_RESOURCE_DATA_ENTRY *entry,
                                                  void **ptr, ULONG *size )
@@ -368,7 +364,7 @@ __ASM_STDCALL_FUNC( LdrAccessResource, 16,
     "pushl 16(%ebp)\n\t"
     "pushl 12(%ebp)\n\t"
     "pushl 8(%ebp)\n\t"
-    "call " __ASM_NAME("access_resource") "\n\t"
+    "call " __ASM_STDCALL("access_resource",16) "\n\t"
     "leave\n\t"
     "ret $16"
 )
@@ -419,32 +415,4 @@ NTSTATUS WINAPI RtlFindMessage( HMODULE hmod, ULONG type, ULONG lang,
         }
     }
     return STATUS_MESSAGE_NOT_FOUND;
-}
-
-/**********************************************************************
- *	RtlFormatMessage  (NTDLL.@)
- *
- * Formats a message (similar to sprintf).
- *
- * PARAMS
- *   Message          [I] Message to format.
- *   MaxWidth         [I] Maximum width in characters of each output line.
- *   IgnoreInserts    [I] Whether to copy the message without processing inserts.
- *   Ansi             [I] Whether Arguments may have ANSI strings.
- *   ArgumentsIsArray [I] Whether Arguments is actually an array rather than a va_list *.
- *   Buffer           [O] Buffer to store processed message in.
- *   BufferSize       [I] Size of Buffer (in bytes?).
- *
- * RETURNS
- *      NTSTATUS code.
- */
-NTSTATUS WINAPI RtlFormatMessage( LPWSTR Message, UCHAR MaxWidth,
-                                  BOOLEAN IgnoreInserts, BOOLEAN Ansi,
-                                  BOOLEAN ArgumentIsArray, __ms_va_list * Arguments,
-                                  LPWSTR Buffer, ULONG BufferSize )
-{
-    FIXME("(%s, %u, %s, %s, %s, %p, %p, %d)\n", debugstr_w(Message),
-        MaxWidth, IgnoreInserts ? "TRUE" : "FALSE", Ansi ? "TRUE" : "FALSE",
-        ArgumentIsArray ? "TRUE" : "FALSE", Arguments, Buffer, BufferSize);
-    return STATUS_SUCCESS;
 }

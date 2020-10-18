@@ -26,6 +26,7 @@
 #include "ntdll_test.h"
 #include "in6addr.h"
 #include "inaddr.h"
+#include "ip2string.h"
 #include "initguid.h"
 #define COBJMACROS
 #include "shobjidl.h"
@@ -66,47 +67,18 @@ static inline USHORT __my_ushort_swap(USHORT s)
 
 /* Function ptrs for ntdll calls */
 static HMODULE hntdll = 0;
-static SIZE_T    (WINAPI  *pRtlCompareMemory)(LPCVOID,LPCVOID,SIZE_T);
-static SIZE_T    (WINAPI  *pRtlCompareMemoryUlong)(PULONG, SIZE_T, ULONG);
-static NTSTATUS  (WINAPI  *pRtlDeleteTimer)(HANDLE, HANDLE, HANDLE);
 static VOID      (WINAPI  *pRtlMoveMemory)(LPVOID,LPCVOID,SIZE_T);
 static VOID      (WINAPI  *pRtlFillMemory)(LPVOID,SIZE_T,BYTE);
 static VOID      (WINAPI  *pRtlFillMemoryUlong)(LPVOID,SIZE_T,ULONG);
 static VOID      (WINAPI  *pRtlZeroMemory)(LPVOID,SIZE_T);
 static ULONGLONG (WINAPIV *pRtlUlonglongByteSwap)(ULONGLONG source);
-static ULONG     (WINAPI  *pRtlUniform)(PULONG);
-static ULONG     (WINAPI  *pRtlRandom)(PULONG);
-static BOOLEAN   (WINAPI  *pRtlAreAllAccessesGranted)(ACCESS_MASK, ACCESS_MASK);
-static BOOLEAN   (WINAPI  *pRtlAreAnyAccessesGranted)(ACCESS_MASK, ACCESS_MASK);
-static DWORD     (WINAPI  *pRtlComputeCrc32)(DWORD,const BYTE*,INT);
-static void      (WINAPI * pRtlInitializeHandleTable)(ULONG, ULONG, RTL_HANDLE_TABLE *);
-static BOOLEAN   (WINAPI * pRtlIsValidIndexHandle)(const RTL_HANDLE_TABLE *, ULONG, RTL_HANDLE **);
-static NTSTATUS  (WINAPI * pRtlDestroyHandleTable)(RTL_HANDLE_TABLE *);
-static RTL_HANDLE * (WINAPI * pRtlAllocateHandle)(RTL_HANDLE_TABLE *, ULONG *);
-static BOOLEAN   (WINAPI * pRtlFreeHandle)(RTL_HANDLE_TABLE *, RTL_HANDLE *);
-static NTSTATUS  (WINAPI *pRtlAllocateAndInitializeSid)(PSID_IDENTIFIER_AUTHORITY,BYTE,DWORD,DWORD,DWORD,DWORD,DWORD,DWORD,DWORD,DWORD,PSID*);
-static NTSTATUS  (WINAPI *pRtlFreeSid)(PSID);
 static DWORD     (WINAPI *pRtlGetThreadErrorMode)(void);
 static NTSTATUS  (WINAPI *pRtlSetThreadErrorMode)(DWORD, LPDWORD);
-static IMAGE_BASE_RELOCATION *(WINAPI *pLdrProcessRelocationBlock)(void*,UINT,USHORT*,INT_PTR);
-static CHAR *    (WINAPI *pRtlIpv4AddressToStringA)(const IN_ADDR *, LPSTR);
 static NTSTATUS  (WINAPI *pRtlIpv4AddressToStringExA)(const IN_ADDR *, USHORT, LPSTR, PULONG);
-static NTSTATUS  (WINAPI *pRtlIpv4StringToAddressA)(PCSTR, BOOLEAN, PCSTR *, IN_ADDR *);
 static NTSTATUS  (WINAPI *pRtlIpv4StringToAddressExA)(PCSTR, BOOLEAN, IN_ADDR *, PUSHORT);
-static CHAR *    (WINAPI *pRtlIpv6AddressToStringA)(struct in6_addr *, PSTR);
 static NTSTATUS  (WINAPI *pRtlIpv6AddressToStringExA)(struct in6_addr *, ULONG, USHORT, PCHAR, PULONG);
-static NTSTATUS  (WINAPI *pRtlIpv6StringToAddressA)(PCSTR, PCSTR *, struct in6_addr *);
-static NTSTATUS  (WINAPI *pRtlIpv6StringToAddressW)(PCWSTR, PCWSTR *, struct in6_addr *);
 static NTSTATUS  (WINAPI *pRtlIpv6StringToAddressExA)(PCSTR, struct in6_addr *, PULONG, PUSHORT);
 static NTSTATUS  (WINAPI *pRtlIpv6StringToAddressExW)(PCWSTR, struct in6_addr *, PULONG, PUSHORT);
-static NTSTATUS  (WINAPI *pLdrAddRefDll)(ULONG, HMODULE);
-static NTSTATUS  (WINAPI *pLdrLockLoaderLock)(ULONG, ULONG*, ULONG_PTR*);
-static NTSTATUS  (WINAPI *pLdrUnlockLoaderLock)(ULONG, ULONG_PTR);
-static NTSTATUS  (WINAPI *pRtlMultiByteToUnicodeN)(LPWSTR, DWORD, LPDWORD, LPCSTR, DWORD);
-static NTSTATUS  (WINAPI *pRtlGetCompressionWorkSpaceSize)(USHORT, PULONG, PULONG);
-static NTSTATUS  (WINAPI *pRtlDecompressBuffer)(USHORT, PUCHAR, ULONG, const UCHAR*, ULONG, PULONG);
-static NTSTATUS  (WINAPI *pRtlDecompressFragment)(USHORT, PUCHAR, ULONG, const UCHAR*, ULONG, ULONG, PULONG, PVOID);
-static NTSTATUS  (WINAPI *pRtlCompressBuffer)(USHORT, const UCHAR*, ULONG, PUCHAR, ULONG, ULONG, PULONG, PVOID);
 static BOOL      (WINAPI *pRtlIsCriticalSectionLocked)(CRITICAL_SECTION *);
 static BOOL      (WINAPI *pRtlIsCriticalSectionLockedByThread)(CRITICAL_SECTION *);
 static NTSTATUS  (WINAPI *pRtlInitializeCriticalSectionEx)(CRITICAL_SECTION *, ULONG, ULONG);
@@ -138,47 +110,18 @@ static void InitFunctionPtrs(void)
     hntdll = LoadLibraryA("ntdll.dll");
     ok(hntdll != 0, "LoadLibrary failed\n");
     if (hntdll) {
-	pRtlCompareMemory = (void *)GetProcAddress(hntdll, "RtlCompareMemory");
-	pRtlCompareMemoryUlong = (void *)GetProcAddress(hntdll, "RtlCompareMemoryUlong");
-        pRtlDeleteTimer = (void *)GetProcAddress(hntdll, "RtlDeleteTimer");
 	pRtlMoveMemory = (void *)GetProcAddress(hntdll, "RtlMoveMemory");
 	pRtlFillMemory = (void *)GetProcAddress(hntdll, "RtlFillMemory");
 	pRtlFillMemoryUlong = (void *)GetProcAddress(hntdll, "RtlFillMemoryUlong");
 	pRtlZeroMemory = (void *)GetProcAddress(hntdll, "RtlZeroMemory");
 	pRtlUlonglongByteSwap = (void *)GetProcAddress(hntdll, "RtlUlonglongByteSwap");
-	pRtlUniform = (void *)GetProcAddress(hntdll, "RtlUniform");
-	pRtlRandom = (void *)GetProcAddress(hntdll, "RtlRandom");
-	pRtlAreAllAccessesGranted = (void *)GetProcAddress(hntdll, "RtlAreAllAccessesGranted");
-	pRtlAreAnyAccessesGranted = (void *)GetProcAddress(hntdll, "RtlAreAnyAccessesGranted");
-	pRtlComputeCrc32 = (void *)GetProcAddress(hntdll, "RtlComputeCrc32");
-	pRtlInitializeHandleTable = (void *)GetProcAddress(hntdll, "RtlInitializeHandleTable");
-	pRtlIsValidIndexHandle = (void *)GetProcAddress(hntdll, "RtlIsValidIndexHandle");
-	pRtlDestroyHandleTable = (void *)GetProcAddress(hntdll, "RtlDestroyHandleTable");
-	pRtlAllocateHandle = (void *)GetProcAddress(hntdll, "RtlAllocateHandle");
-	pRtlFreeHandle = (void *)GetProcAddress(hntdll, "RtlFreeHandle");
-        pRtlAllocateAndInitializeSid = (void *)GetProcAddress(hntdll, "RtlAllocateAndInitializeSid");
-        pRtlFreeSid = (void *)GetProcAddress(hntdll, "RtlFreeSid");
         pRtlGetThreadErrorMode = (void *)GetProcAddress(hntdll, "RtlGetThreadErrorMode");
         pRtlSetThreadErrorMode = (void *)GetProcAddress(hntdll, "RtlSetThreadErrorMode");
-        pLdrProcessRelocationBlock  = (void *)GetProcAddress(hntdll, "LdrProcessRelocationBlock");
-        pRtlIpv4AddressToStringA = (void *)GetProcAddress(hntdll, "RtlIpv4AddressToStringA");
         pRtlIpv4AddressToStringExA = (void *)GetProcAddress(hntdll, "RtlIpv4AddressToStringExA");
-        pRtlIpv4StringToAddressA = (void *)GetProcAddress(hntdll, "RtlIpv4StringToAddressA");
         pRtlIpv4StringToAddressExA = (void *)GetProcAddress(hntdll, "RtlIpv4StringToAddressExA");
-        pRtlIpv6AddressToStringA = (void *)GetProcAddress(hntdll, "RtlIpv6AddressToStringA");
         pRtlIpv6AddressToStringExA = (void *)GetProcAddress(hntdll, "RtlIpv6AddressToStringExA");
-        pRtlIpv6StringToAddressA = (void *)GetProcAddress(hntdll, "RtlIpv6StringToAddressA");
-        pRtlIpv6StringToAddressW = (void *)GetProcAddress(hntdll, "RtlIpv6StringToAddressW");
         pRtlIpv6StringToAddressExA = (void *)GetProcAddress(hntdll, "RtlIpv6StringToAddressExA");
         pRtlIpv6StringToAddressExW = (void *)GetProcAddress(hntdll, "RtlIpv6StringToAddressExW");
-        pLdrAddRefDll = (void *)GetProcAddress(hntdll, "LdrAddRefDll");
-        pLdrLockLoaderLock = (void *)GetProcAddress(hntdll, "LdrLockLoaderLock");
-        pLdrUnlockLoaderLock = (void *)GetProcAddress(hntdll, "LdrUnlockLoaderLock");
-        pRtlMultiByteToUnicodeN = (void *)GetProcAddress(hntdll, "RtlMultiByteToUnicodeN");
-        pRtlGetCompressionWorkSpaceSize = (void *)GetProcAddress(hntdll, "RtlGetCompressionWorkSpaceSize");
-        pRtlDecompressBuffer = (void *)GetProcAddress(hntdll, "RtlDecompressBuffer");
-        pRtlDecompressFragment = (void *)GetProcAddress(hntdll, "RtlDecompressFragment");
-        pRtlCompressBuffer = (void *)GetProcAddress(hntdll, "RtlCompressBuffer");
         pRtlIsCriticalSectionLocked = (void *)GetProcAddress(hntdll, "RtlIsCriticalSectionLocked");
         pRtlIsCriticalSectionLockedByThread = (void *)GetProcAddress(hntdll, "RtlIsCriticalSectionLockedByThread");
         pRtlInitializeCriticalSectionEx = (void *)GetProcAddress(hntdll, "RtlInitializeCriticalSectionEx");
@@ -198,18 +141,12 @@ static void InitFunctionPtrs(void)
     ok(strlen(src) == 15, "Source must be 16 bytes long!\n");
 }
 
-#define COMP(str1,str2,cmplen,len) size = pRtlCompareMemory(str1, str2, cmplen); \
+#define COMP(str1,str2,cmplen,len) size = RtlCompareMemory(str1, str2, cmplen); \
   ok(size == len, "Expected %ld, got %ld\n", size, (SIZE_T)len)
 
 static void test_RtlCompareMemory(void)
 {
   SIZE_T size;
-
-  if (!pRtlCompareMemory)
-  {
-    win_skip("RtlCompareMemory is not available\n");
-    return;
-  }
 
   strcpy(dest, src);
 
@@ -224,49 +161,43 @@ static void test_RtlCompareMemoryUlong(void)
     ULONG a[10];
     ULONG result;
 
-    if (!pRtlCompareMemoryUlong)
-    {
-        win_skip("RtlCompareMemoryUlong is not available\n");
-        return;
-    }
-
     a[0]= 0x0123;
     a[1]= 0x4567;
     a[2]= 0x89ab;
     a[3]= 0xcdef;
-    result = pRtlCompareMemoryUlong(a, 0, 0x0123);
+    result = RtlCompareMemoryUlong(a, 0, 0x0123);
     ok(result == 0, "RtlCompareMemoryUlong(%p, 0, 0x0123) returns %u, expected 0\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 3, 0x0123);
+    result = RtlCompareMemoryUlong(a, 3, 0x0123);
     ok(result == 0, "RtlCompareMemoryUlong(%p, 3, 0x0123) returns %u, expected 0\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 4, 0x0123);
+    result = RtlCompareMemoryUlong(a, 4, 0x0123);
     ok(result == 4, "RtlCompareMemoryUlong(%p, 4, 0x0123) returns %u, expected 4\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 5, 0x0123);
+    result = RtlCompareMemoryUlong(a, 5, 0x0123);
     ok(result == 4, "RtlCompareMemoryUlong(%p, 5, 0x0123) returns %u, expected 4\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 7, 0x0123);
+    result = RtlCompareMemoryUlong(a, 7, 0x0123);
     ok(result == 4, "RtlCompareMemoryUlong(%p, 7, 0x0123) returns %u, expected 4\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 8, 0x0123);
+    result = RtlCompareMemoryUlong(a, 8, 0x0123);
     ok(result == 4, "RtlCompareMemoryUlong(%p, 8, 0x0123) returns %u, expected 4\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 9, 0x0123);
+    result = RtlCompareMemoryUlong(a, 9, 0x0123);
     ok(result == 4, "RtlCompareMemoryUlong(%p, 9, 0x0123) returns %u, expected 4\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 4, 0x0127);
+    result = RtlCompareMemoryUlong(a, 4, 0x0127);
     ok(result == 0, "RtlCompareMemoryUlong(%p, 4, 0x0127) returns %u, expected 0\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 4, 0x7123);
+    result = RtlCompareMemoryUlong(a, 4, 0x7123);
     ok(result == 0, "RtlCompareMemoryUlong(%p, 4, 0x7123) returns %u, expected 0\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 16, 0x4567);
+    result = RtlCompareMemoryUlong(a, 16, 0x4567);
     ok(result == 0, "RtlCompareMemoryUlong(%p, 16, 0x4567) returns %u, expected 0\n", a, result);
 
     a[1]= 0x0123;
-    result = pRtlCompareMemoryUlong(a, 3, 0x0123);
+    result = RtlCompareMemoryUlong(a, 3, 0x0123);
     ok(result == 0, "RtlCompareMemoryUlong(%p, 3, 0x0123) returns %u, expected 0\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 4, 0x0123);
+    result = RtlCompareMemoryUlong(a, 4, 0x0123);
     ok(result == 4, "RtlCompareMemoryUlong(%p, 4, 0x0123) returns %u, expected 4\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 5, 0x0123);
+    result = RtlCompareMemoryUlong(a, 5, 0x0123);
     ok(result == 4, "RtlCompareMemoryUlong(%p, 5, 0x0123) returns %u, expected 4\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 7, 0x0123);
+    result = RtlCompareMemoryUlong(a, 7, 0x0123);
     ok(result == 4, "RtlCompareMemoryUlong(%p, 7, 0x0123) returns %u, expected 4\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 8, 0x0123);
+    result = RtlCompareMemoryUlong(a, 8, 0x0123);
     ok(result == 8, "RtlCompareMemoryUlong(%p, 8, 0x0123) returns %u, expected 8\n", a, result);
-    result = pRtlCompareMemoryUlong(a, 9, 0x0123);
+    result = RtlCompareMemoryUlong(a, 9, 0x0123);
     ok(result == 8, "RtlCompareMemoryUlong(%p, 9, 0x0123) returns %u, expected 8\n", a, result);
 }
 
@@ -387,12 +318,6 @@ static void test_RtlUlonglongByteSwap(void)
         return;
     }
 
-    if ( pRtlUlonglongByteSwap( 0 ) != 0 )
-    {
-        win_skip("Broken RtlUlonglongByteSwap in win2k\n");
-        return;
-    }
-
     result = pRtlUlonglongByteSwap( ((ULONGLONG)0x76543210 << 32) | 0x87654321 );
     ok( (((ULONGLONG)0x21436587 << 32) | 0x10325476) == result,
        "RtlUlonglongByteSwap(0x7654321087654321) returns 0x%s, expected 0x2143658710325476\n",
@@ -407,12 +332,6 @@ static void test_RtlUniform(void)
     ULONG seed_bak;
     ULONG expected;
     ULONG result;
-
-    if (!pRtlUniform)
-    {
-        win_skip("RtlUniform is not available\n");
-        return;
-    }
 
 /*
  * According to the documentation RtlUniform is using D.H. Lehmer's 1948
@@ -434,7 +353,7 @@ static void test_RtlUniform(void)
  */
     seed = 0;
     expected = 0x7fffffc3;
-    result = pRtlUniform(&seed);
+    result = RtlUniform(&seed);
     ok(result == expected,
         "RtlUniform(&seed (seed == 0)) returns %x, expected %x\n",
         result, expected);
@@ -455,7 +374,7 @@ static void test_RtlUniform(void)
  */
     seed = 1;
     expected = seed * 0xffffffed + 0x7fffffc3 + 1;
-    result = pRtlUniform(&seed);
+    result = RtlUniform(&seed);
     ok(result == expected,
         "RtlUniform(&seed (seed == 1)) returns %x, expected %x\n",
         result, expected);
@@ -464,7 +383,7 @@ static void test_RtlUniform(void)
  */
     seed = 2;
     expected = seed * 0xffffffed + 0x7fffffc3;
-    result = pRtlUniform(&seed);
+    result = RtlUniform(&seed);
 
 /*
  * Windows Vista uses different algorithms, so skip the rest of the tests
@@ -485,21 +404,21 @@ static void test_RtlUniform(void)
  */
     seed = 3;
     expected = seed * 0xffffffed + 0x7fffffc3 + (seed & 1);
-    result = pRtlUniform(&seed);
+    result = RtlUniform(&seed);
     ok(result == expected,
         "RtlUniform(&seed (seed == 3)) returns %x, expected %x\n",
         result, expected);
 
     seed = 0x6bca1aa;
     expected = seed * 0xffffffed + 0x7fffffc3;
-    result = pRtlUniform(&seed);
+    result = RtlUniform(&seed);
     ok(result == expected,
         "RtlUniform(&seed (seed == 0x6bca1aa)) returns %x, expected %x\n",
         result, expected);
 
     seed = 0x6bca1ab;
     expected = seed * 0xffffffed + 0x7fffffc3 + 1;
-    result = pRtlUniform(&seed);
+    result = RtlUniform(&seed);
     ok(result == expected,
         "RtlUniform(&seed (seed == 0x6bca1ab)) returns %x, expected %x\n",
         result, expected);
@@ -508,7 +427,7 @@ static void test_RtlUniform(void)
  */
     seed = 0x6bca1ac;
     expected = seed * 0xffffffed + 0x7fffffc3 + 2;
-    result = pRtlUniform(&seed);
+    result = RtlUniform(&seed);
     ok(result == expected,
         "RtlUniform(&seed (seed == 0x6bca1ac)) returns %x, expected %x\n",
         result, expected);
@@ -520,14 +439,14 @@ static void test_RtlUniform(void)
  */
     seed = 0x6bca1ad;
     expected = (seed * 0xffffffed + 0x7fffffc3) & MAXLONG;
-    result = pRtlUniform(&seed);
+    result = RtlUniform(&seed);
     ok(result == expected,
         "RtlUniform(&seed (seed == 0x6bca1ad)) returns %x, expected %x\n",
         result, expected);
 
     seed = 0x6bca1ae;
     expected = (seed * 0xffffffed + 0x7fffffc3 + 1) & MAXLONG;
-    result = pRtlUniform(&seed);
+    result = RtlUniform(&seed);
     ok(result == expected,
         "RtlUniform(&seed (seed == 0x6bca1ae)) returns %x, expected %x\n",
         result, expected);
@@ -635,7 +554,7 @@ static void test_RtlUniform(void)
 	    expected = expected + (seed & 1);
 	} /* if */
         seed_bak = seed;
-        result = pRtlUniform(&seed);
+        result = RtlUniform(&seed);
         ok(result == expected,
                 "test: 0x%s RtlUniform(&seed (seed == %x)) returns %x, expected %x\n",
                 wine_dbgstr_longlong(num), seed_bak, result, expected);
@@ -682,7 +601,7 @@ static void test_RtlUniform(void)
     for (num = 0; num <= 100000; num++) {
 	expected = (seed * 0x7fffffed + 0x7fffffc3) % 0x7fffffff;
         seed_bak = seed;
-        result = pRtlUniform(&seed);
+        result = RtlUniform(&seed);
         ok(result == expected,
                 "test: 0x%s RtlUniform(&seed (seed == %x)) returns %x, expected %x\n",
                 wine_dbgstr_longlong(num), seed_bak, result, expected);
@@ -704,16 +623,10 @@ static void test_RtlRandom(void)
     ULONG seed;
     ULONG res[512];
 
-    if (!pRtlRandom)
-    {
-        win_skip("RtlRandom is not available\n");
-        return;
-    }
-
     seed = 0;
     for (i = 0; i < ARRAY_SIZE(res); i++)
     {
-        res[i] = pRtlRandom(&seed);
+        res[i] = RtlRandom(&seed);
         ok(seed != res[i], "%i: seed is same as res %x\n", i, seed);
         for (j = 0; j < i; j++)
             ok(res[i] != res[j], "res[%i] (%x) is same as res[%i] (%x)\n", j, res[j], i, res[i]);
@@ -746,15 +659,9 @@ static void test_RtlAreAllAccessesGranted(void)
     unsigned int test_num;
     BOOLEAN result;
 
-    if (!pRtlAreAllAccessesGranted)
-    {
-        win_skip("RtlAreAllAccessesGranted is not available\n");
-        return;
-    }
-
     for (test_num = 0; test_num < ARRAY_SIZE(all_accesses); test_num++) {
-	result = pRtlAreAllAccessesGranted(all_accesses[test_num].GrantedAccess,
-					   all_accesses[test_num].DesiredAccess);
+	result = RtlAreAllAccessesGranted(all_accesses[test_num].GrantedAccess,
+					  all_accesses[test_num].DesiredAccess);
 	ok(all_accesses[test_num].result == result,
            "(test %d): RtlAreAllAccessesGranted(%08x, %08x) returns %d, expected %d\n",
 	   test_num, all_accesses[test_num].GrantedAccess,
@@ -788,15 +695,9 @@ static void test_RtlAreAnyAccessesGranted(void)
     unsigned int test_num;
     BOOLEAN result;
 
-    if (!pRtlAreAnyAccessesGranted)
-    {
-        win_skip("RtlAreAnyAccessesGranted is not available\n");
-        return;
-    }
-
     for (test_num = 0; test_num < ARRAY_SIZE(any_accesses); test_num++) {
-	result = pRtlAreAnyAccessesGranted(any_accesses[test_num].GrantedAccess,
-					   any_accesses[test_num].DesiredAccess);
+	result = RtlAreAnyAccessesGranted(any_accesses[test_num].GrantedAccess,
+					  any_accesses[test_num].DesiredAccess);
 	ok(any_accesses[test_num].result == result,
            "(test %d): RtlAreAnyAccessesGranted(%08x, %08x) returns %d, expected %d\n",
 	   test_num, any_accesses[test_num].GrantedAccess,
@@ -809,13 +710,7 @@ static void test_RtlComputeCrc32(void)
 {
   DWORD crc = 0;
 
-  if (!pRtlComputeCrc32)
-  {
-    win_skip("RtlComputeCrc32 is not available\n");
-    return;
-  }
-
-  crc = pRtlComputeCrc32(crc, (const BYTE *)src, LEN);
+  crc = RtlComputeCrc32(crc, (const BYTE *)src, LEN);
   ok(crc == 0x40861dc2,"Expected 0x40861dc2, got %8x\n", crc);
 }
 
@@ -840,22 +735,16 @@ static void test_HandleTables(void)
     MY_HANDLE * MyHandle;
     RTL_HANDLE_TABLE HandleTable;
 
-    if (!pRtlInitializeHandleTable)
-    {
-        win_skip("RtlInitializeHandleTable is not available\n");
-        return;
-    }
-
-    pRtlInitializeHandleTable(0x3FFF, sizeof(MY_HANDLE), &HandleTable);
-    MyHandle = (MY_HANDLE *)pRtlAllocateHandle(&HandleTable, &Index);
+    RtlInitializeHandleTable(0x3FFF, sizeof(MY_HANDLE), &HandleTable);
+    MyHandle = (MY_HANDLE *)RtlAllocateHandle(&HandleTable, &Index);
     ok(MyHandle != NULL, "RtlAllocateHandle failed\n");
     RtlpMakeHandleAllocated(&MyHandle->RtlHandle);
     MyHandle = NULL;
-    result = pRtlIsValidIndexHandle(&HandleTable, Index, (RTL_HANDLE **)&MyHandle);
+    result = RtlIsValidIndexHandle(&HandleTable, Index, (RTL_HANDLE **)&MyHandle);
     ok(result, "Handle %p wasn't valid\n", MyHandle);
-    result = pRtlFreeHandle(&HandleTable, &MyHandle->RtlHandle);
+    result = RtlFreeHandle(&HandleTable, &MyHandle->RtlHandle);
     ok(result, "Couldn't free handle %p\n", MyHandle);
-    status = pRtlDestroyHandleTable(&HandleTable);
+    status = RtlDestroyHandleTable(&HandleTable);
     ok(status == STATUS_SUCCESS, "RtlDestroyHandleTable failed with error 0x%08x\n", status);
 }
 
@@ -865,25 +754,19 @@ static void test_RtlAllocateAndInitializeSid(void)
     SID_IDENTIFIER_AUTHORITY sia = {{ 1, 2, 3, 4, 5, 6 }};
     PSID psid;
 
-    if (!pRtlAllocateAndInitializeSid)
-    {
-        win_skip("RtlAllocateAndInitializeSid is not available\n");
-        return;
-    }
-
-    ret = pRtlAllocateAndInitializeSid(&sia, 0, 1, 2, 3, 4, 5, 6, 7, 8, &psid);
+    ret = RtlAllocateAndInitializeSid(&sia, 0, 1, 2, 3, 4, 5, 6, 7, 8, &psid);
     ok(!ret, "RtlAllocateAndInitializeSid error %08x\n", ret);
-    ret = pRtlFreeSid(psid);
+    ret = RtlFreeSid(psid);
     ok(!ret, "RtlFreeSid error %08x\n", ret);
 
     /* these tests crash on XP */
     if (0)
     {
-        pRtlAllocateAndInitializeSid(NULL, 0, 1, 2, 3, 4, 5, 6, 7, 8, &psid);
-        pRtlAllocateAndInitializeSid(&sia, 0, 1, 2, 3, 4, 5, 6, 7, 8, NULL);
+        RtlAllocateAndInitializeSid(NULL, 0, 1, 2, 3, 4, 5, 6, 7, 8, &psid);
+        RtlAllocateAndInitializeSid(&sia, 0, 1, 2, 3, 4, 5, 6, 7, 8, NULL);
     }
 
-    ret = pRtlAllocateAndInitializeSid(&sia, 9, 1, 2, 3, 4, 5, 6, 7, 8, &psid);
+    ret = RtlAllocateAndInitializeSid(&sia, 9, 1, 2, 3, 4, 5, 6, 7, 8, &psid);
     ok(ret == STATUS_INVALID_SID, "wrong error %08x\n", ret);
 }
 
@@ -891,13 +774,7 @@ static void test_RtlDeleteTimer(void)
 {
     NTSTATUS ret;
 
-    if (!pRtlDeleteTimer)
-    {
-        win_skip("RtlDeleteTimer is not available\n");
-        return;
-    }
-
-    ret = pRtlDeleteTimer(NULL, NULL, NULL);
+    ret = RtlDeleteTimer(NULL, NULL, NULL);
     ok(ret == STATUS_INVALID_PARAMETER_1 ||
        ret == STATUS_INVALID_PARAMETER, /* W2K */
        "expected STATUS_INVALID_PARAMETER_1 or STATUS_INVALID_PARAMETER, got %x\n", ret);
@@ -978,26 +855,21 @@ static void test_LdrProcessRelocationBlock(void)
     DWORD addr32;
     SHORT addr16;
 
-    if(!pLdrProcessRelocationBlock) {
-        win_skip("LdrProcessRelocationBlock not available\n");
-        return;
-    }
-
     addr32 = 0x50005;
     reloc = IMAGE_REL_BASED_HIGHLOW<<12;
-    ret = pLdrProcessRelocationBlock(&addr32, 1, &reloc, 0x500050);
+    ret = LdrProcessRelocationBlock(&addr32, 1, &reloc, 0x500050);
     ok((USHORT*)ret == &reloc+1, "ret = %p, expected %p\n", ret, &reloc+1);
     ok(addr32 == 0x550055, "addr32 = %x, expected 0x550055\n", addr32);
 
     addr16 = 0x505;
     reloc = IMAGE_REL_BASED_HIGH<<12;
-    ret = pLdrProcessRelocationBlock(&addr16, 1, &reloc, 0x500060);
+    ret = LdrProcessRelocationBlock(&addr16, 1, &reloc, 0x500060);
     ok((USHORT*)ret == &reloc+1, "ret = %p, expected %p\n", ret, &reloc+1);
     ok(addr16 == 0x555, "addr16 = %x, expected 0x555\n", addr16);
 
     addr16 = 0x505;
     reloc = IMAGE_REL_BASED_LOW<<12;
-    ret = pLdrProcessRelocationBlock(&addr16, 1, &reloc, 0x500060);
+    ret = LdrProcessRelocationBlock(&addr16, 1, &reloc, 0x500060);
     ok((USHORT*)ret == &reloc+1, "ret = %p, expected %p\n", ret, &reloc+1);
     ok(addr16 == 0x565, "addr16 = %x, expected 0x565\n", addr16);
 }
@@ -1009,12 +881,6 @@ static void test_RtlIpv4AddressToString(void)
     IN_ADDR ip;
     DWORD_PTR len;
 
-    if (!pRtlIpv4AddressToStringA)
-    {
-        win_skip("RtlIpv4AddressToStringA not available\n");
-        return;
-    }
-
     ip.S_un.S_un_b.s_b1 = 1;
     ip.S_un.S_un_b.s_b2 = 2;
     ip.S_un.S_un_b.s_b3 = 3;
@@ -1022,11 +888,11 @@ static void test_RtlIpv4AddressToString(void)
 
     memset(buffer, '#', sizeof(buffer) - 1);
     buffer[sizeof(buffer) -1] = 0;
-    res = pRtlIpv4AddressToStringA(&ip, buffer);
+    res = RtlIpv4AddressToStringA(&ip, buffer);
     len = strlen(buffer);
     ok(res == (buffer + len), "got %p with '%s' (expected %p)\n", res, buffer, buffer + len);
 
-    res = pRtlIpv4AddressToStringA(&ip, NULL);
+    res = RtlIpv4AddressToStringA(&ip, NULL);
     ok( (res == (char *)~0) ||
         broken(res == (char *)len),        /* XP and w2003 */
         "got %p (expected ~0)\n", res);
@@ -1035,13 +901,13 @@ static void test_RtlIpv4AddressToString(void)
         /* this crashes in windows */
         memset(buffer, '#', sizeof(buffer) - 1);
         buffer[sizeof(buffer) -1] = 0;
-        res = pRtlIpv4AddressToStringA(NULL, buffer);
+        res = RtlIpv4AddressToStringA(NULL, buffer);
         trace("got %p with '%s'\n", res, buffer);
     }
 
     if (0) {
         /* this crashes in windows */
-        res = pRtlIpv4AddressToStringA(NULL, NULL);
+        res = RtlIpv4AddressToStringA(NULL, NULL);
         trace("got %p\n", res);
     }
 }
@@ -1297,23 +1163,17 @@ static void test_RtlIpv4StringToAddress(void)
     CHAR dummy;
     int i;
 
-    if (!pRtlIpv4StringToAddressA)
-    {
-        skip("RtlIpv4StringToAddress not available\n");
-        return;
-    }
-
     if (0)
     {
         /* leaving either parameter NULL crashes on Windows */
-        res = pRtlIpv4StringToAddressA(NULL, FALSE, &terminator, &ip);
-        res = pRtlIpv4StringToAddressA("1.1.1.1", FALSE, NULL, &ip);
-        res = pRtlIpv4StringToAddressA("1.1.1.1", FALSE, &terminator, NULL);
+        res = RtlIpv4StringToAddressA(NULL, FALSE, &terminator, &ip);
+        res = RtlIpv4StringToAddressA("1.1.1.1", FALSE, NULL, &ip);
+        res = RtlIpv4StringToAddressA("1.1.1.1", FALSE, &terminator, NULL);
         /* same for the wide char version */
         /*
-        res = pRtlIpv4StringToAddressW(NULL, FALSE, &terminatorW, &ip);
-        res = pRtlIpv4StringToAddressW(L"1.1.1.1", FALSE, NULL, &ip);
-        res = pRtlIpv4StringToAddressW(L"1.1.1.1", FALSE, &terminatorW, NULL);
+        res = RtlIpv4StringToAddressW(NULL, FALSE, &terminatorW, &ip);
+        res = RtlIpv4StringToAddressW(L"1.1.1.1", FALSE, NULL, &ip);
+        res = RtlIpv4StringToAddressW(L"1.1.1.1", FALSE, &terminatorW, NULL);
         */
     }
 
@@ -1322,7 +1182,7 @@ static void test_RtlIpv4StringToAddress(void)
         /* non-strict */
         terminator = &dummy;
         ip.S_un.S_addr = 0xabababab;
-        res = pRtlIpv4StringToAddressA(ipv4_tests[i].address, FALSE, &terminator, &ip);
+        res = RtlIpv4StringToAddressA(ipv4_tests[i].address, FALSE, &terminator, &ip);
         ok(res == ipv4_tests[i].res,
            "[%s] res = 0x%08x, expected 0x%08x\n",
            ipv4_tests[i].address, res, ipv4_tests[i].res);
@@ -1347,7 +1207,7 @@ static void test_RtlIpv4StringToAddress(void)
         /* strict */
         terminator = &dummy;
         ip.S_un.S_addr = 0xabababab;
-        res = pRtlIpv4StringToAddressA(ipv4_tests[i].address, TRUE, &terminator, &ip);
+        res = RtlIpv4StringToAddressA(ipv4_tests[i].address, TRUE, &terminator, &ip);
         ok(res == ipv4_tests[i].res_strict,
            "[%s] res = 0x%08x, expected 0x%08x\n",
            ipv4_tests[i].address, res, ipv4_tests[i].res_strict);
@@ -1542,6 +1402,10 @@ static const struct
             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0, 0 } },
     { "1111:2222:3333:4444:5555:6666::8888",            STATUS_SUCCESS,             35,
             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0, 0x8888 } },
+    { "1111:2222:3333:4444:5555:6666::7777:8888",       STATUS_SUCCESS,             35,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0, 0x7777 }, ex_fail_6 },
+    { "1111:2222:3333:4444:5555:6666:7777::8888",       STATUS_SUCCESS,             36,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0 }, ex_fail_6|win_broken_6 },
     { "1111:2222:3333:4444:5555::",                     STATUS_SUCCESS,             26,
             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0, 0 } },
     { "1111:2222:3333:4444:5555::123.123.123.123",      STATUS_SUCCESS,             41,
@@ -1558,8 +1422,30 @@ static const struct
             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0, 0x8800 }, ex_fail_6 },
     { "1111:2222:3333:4444:5555::0x8888",               STATUS_SUCCESS,             27,
             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0, 0x8888 }, ex_fail_6 },
+    { "1111:2222:3333:4444:5555::0x80000000",           STATUS_SUCCESS,             27,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0, 0xffff }, ex_fail_6 },
+    { "1111:2222:3333:4444::5555:0x012345678",          STATUS_SUCCESS,             27,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0, 0x5555, 0x7856 }, ex_fail_6 },
+    { "1111:2222:3333:4444::5555:0x123456789",          STATUS_SUCCESS,             27,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0, 0x5555, 0xffff }, ex_fail_6 },
+    { "1111:2222:3333:4444:5555:6666:0x12345678",       STATUS_INVALID_PARAMETER,   31,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0xabab, 0xabab }, ex_fail_6 },
+    { "1111:2222:3333:4444:5555:6666:7777:0x80000000", STATUS_SUCCESS,             36,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0xffff }, ex_fail_6 },
+    { "1111:2222:3333:4444:5555:6666:7777:0x012345678", STATUS_SUCCESS,             36,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x7856 }, ex_fail_6 },
+    { "1111:2222:3333:4444:5555:6666:7777:0x123456789", STATUS_SUCCESS,             36,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0xffff }, ex_fail_6 },
+    { "111:222:333:444:555:666:777:0x123456789abcdef0", STATUS_SUCCESS,             29,
+            { 0x1101, 0x2202, 0x3303, 0x4404, 0x5505, 0x6606, 0x7707, 0xffff }, ex_fail_6 },
     { "1111:2222:3333:4444:5555::08888",                STATUS_INVALID_PARAMETER,   31,
             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0xabab, 0xabab, 0xabab } },
+    { "1111:2222:3333:4444:5555::08888::",              STATUS_INVALID_PARAMETER,   31,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0xabab, 0xabab, 0xabab } },
+    { "1111:2222:3333:4444:5555:6666:7777:fffff:",      STATUS_INVALID_PARAMETER,   40,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0xabab } },
+    { "1111:2222:3333:4444:5555:6666::fffff:",          STATUS_INVALID_PARAMETER,   36,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0xabab, 0xabab } },
     { "1111:2222:3333:4444:5555::fffff",                STATUS_INVALID_PARAMETER,   31,
             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0xabab, 0xabab, 0xabab } },
     { "1111:2222:3333:4444::fffff",                     STATUS_INVALID_PARAMETER,   26,
@@ -1622,6 +1508,8 @@ static const struct
             { 0, 0, 0, 0, 0, 0, 0, 0 } },
     { "::/16",                                          STATUS_SUCCESS,             2,
             { 0, 0, 0, 0, 0, 0, 0, 0 }, ex_fail_6 },
+    { "::01234",                                        STATUS_INVALID_PARAMETER,   7,
+            { 0, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "::0",                                            STATUS_SUCCESS,             3,
             { 0, 0, 0, 0, 0, 0, 0, 0 } },
     { "::0:0",                                          STATUS_SUCCESS,             5,
@@ -1655,6 +1543,12 @@ static const struct
             { 0x120, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "2001:0000:01234:0000:0000:C1C0:ABCD:0876",       STATUS_INVALID_PARAMETER,   -1,
             { 0x120, 0, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "2001:0000::01234.0",                             STATUS_INVALID_PARAMETER,   -1,
+            { 0x120, 0, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "2001:0::b.0",                                    STATUS_SUCCESS,             9,
+            { 0x120, 0, 0, 0, 0, 0, 0, 0xb00 }, ex_fail_6 },
+    { "2001::0:b.0",                                    STATUS_SUCCESS,             9,
+            { 0x120, 0, 0, 0, 0, 0, 0, 0xb00 }, ex_fail_6 },
     { "1.2.3.4",                                        STATUS_INVALID_PARAMETER,   7,
             { 0x201, 0xab03, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1.2.3.4:1111::5555",                             STATUS_INVALID_PARAMETER,   7,
@@ -1667,9 +1561,15 @@ static const struct
             { -1 } },
     { "1111",                                           STATUS_INVALID_PARAMETER,   4,
             { -1 } },
+    { "0x1111",                                         STATUS_INVALID_PARAMETER,   1,
+            { -1 } },
     { "1111:22223333:4444:5555:6666:1.2.3.4",           STATUS_INVALID_PARAMETER,   -1,
             { 0x1111, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1111:22223333:4444:5555:6666:7777:8888",         STATUS_INVALID_PARAMETER,   -1,
+            { 0x1111, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1111:123456789:4444:5555:6666:7777:8888",        STATUS_INVALID_PARAMETER,   -1,
+            { 0x1111, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1111:1234567890abcdef0:4444:5555:6666:7777:888", STATUS_INVALID_PARAMETER,   -1,
             { 0x1111, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1111:2222:",                                     STATUS_INVALID_PARAMETER,   10,
             { 0x1111, 0x2222, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
@@ -1677,6 +1577,8 @@ static const struct
             { 0x1111, 0x2222, 0x201, 0xab03, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1111:2222:3333",                                 STATUS_INVALID_PARAMETER,   14,
             { 0x1111, 0x2222, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1111:2222:3333:4444:5555:6666::1.2.3.4",         STATUS_SUCCESS,             32,
+            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0, 0x100 }, ex_fail_6 },
     { "1111:2222:3333:4444:5555:6666:7777:1.2.3.4",     STATUS_SUCCESS,             36,
             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x100 }, ex_fail_6 },
     { "1111:2222:3333:4444:5555:6666:7777:8888:",       STATUS_SUCCESS,             39,
@@ -1697,11 +1599,29 @@ static const struct
             { 0x1111, 0, 0, 0, 0, 0, 0, 0x3333 }, ex_fail_6 },
     { "12345::6:7:8",                                   STATUS_INVALID_PARAMETER,   -1,
             { -1 } },
+    { "1::001.2.3.4",                                   STATUS_SUCCESS,             12,
+            { 0x100, 0, 0, 0, 0, 0, 0x201, 0x403 } },
+    { "1::1.002.3.4",                                   STATUS_SUCCESS,             12,
+            { 0x100, 0, 0, 0, 0, 0, 0x201, 0x403 } },
+    { "1::0001.2.3.4",                                  STATUS_INVALID_PARAMETER,   -1,
+            { 0x100, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1::1.0002.3.4",                                  STATUS_INVALID_PARAMETER,   -1,
+            { 0x100, 0xab01, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1::1.2.256.4",                                   STATUS_INVALID_PARAMETER,   -1,
+            { 0x100, 0x201, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1::1.2.4294967296.4",                            STATUS_INVALID_PARAMETER,   -1,
+            { 0x100, 0x201, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1::1.2.18446744073709551616.4",                  STATUS_INVALID_PARAMETER,   -1,
             { 0x100, 0x201, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1::1.2.3.256",                                   STATUS_INVALID_PARAMETER,   12,
             { 0x100, 0x201, 0xab03, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1::1.2.3.4294967296",                            STATUS_INVALID_PARAMETER,   19,
+            { 0x100, 0x201, 0xab03, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1::1.2.3.18446744073709551616",                  STATUS_INVALID_PARAMETER,   29,
+            { 0x100, 0x201, 0xab03, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1::1.2.3.300",                                   STATUS_INVALID_PARAMETER,   12,
+            { 0x100, 0x201, 0xab03, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1::1.2.3.300.",                                  STATUS_INVALID_PARAMETER,   12,
             { 0x100, 0x201, 0xab03, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1::1.2::1",                                      STATUS_INVALID_PARAMETER,   6,
             { 0x100, 0xab01, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
@@ -1725,8 +1645,14 @@ static const struct
             { 0x100, 0x201, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1::1.256.3.4",                                   STATUS_INVALID_PARAMETER,   -1,
             { 0x100, 0xab01, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1::1.256:3.4",                                   STATUS_INVALID_PARAMETER,   8,
+            { 0x100, 0xab01, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1::1.2a.3.4",                                    STATUS_INVALID_PARAMETER,   6,
+            { 0x100, 0xab01, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
     { "1::256.2.3.4",                                   STATUS_INVALID_PARAMETER,   -1,
             { 0x100, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "1::1a.2.3.4",                                    STATUS_SUCCESS,             5,
+            { 0x100, 0, 0, 0, 0, 0, 0, 0x1a00 }, ex_fail_6 },
     { "1::2::3",                                        STATUS_SUCCESS,             4,
             { 0x100, 0, 0, 0, 0, 0, 0, 0x200 }, ex_fail_6 },
     { "2001:0000:1234: 0000:0000:C1C0:ABCD:0876",       STATUS_INVALID_PARAMETER,   15,
@@ -1747,6 +1673,20 @@ static const struct
             { -1 } },
     { "::-1",                                           STATUS_SUCCESS,             2,
             { 0, 0, 0, 0, 0, 0, 0, 0 }, ex_fail_6 },
+    { "::12345678",                                     STATUS_INVALID_PARAMETER,   10,
+            { 0, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "::123456789",                                    STATUS_INVALID_PARAMETER,   11,
+            { 0, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "::1234567890abcdef0",                            STATUS_INVALID_PARAMETER,   19,
+            { 0, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab, 0xabab } },
+    { "::0x80000000",                                   STATUS_SUCCESS,             3,
+            { 0, 0, 0, 0, 0, 0, 0, 0xffff }, ex_fail_6 },
+    { "::0x012345678",                                  STATUS_SUCCESS,             3,
+            { 0, 0, 0, 0, 0, 0, 0, 0x7856 }, ex_fail_6 },
+    { "::0x123456789",                                  STATUS_SUCCESS,             3,
+            { 0, 0, 0, 0, 0, 0, 0, 0xffff }, ex_fail_6 },
+    { "::0x1234567890abcdef0",                          STATUS_SUCCESS,             3,
+            { 0, 0, 0, 0, 0, 0, 0, 0xffff }, ex_fail_6 },
     { "::.",                                            STATUS_SUCCESS,             2,
             { 0, 0, 0, 0, 0, 0, 0, 0 }, ex_fail_6 },
     { "::..",                                           STATUS_SUCCESS,             2,
@@ -1784,98 +1724,100 @@ static void test_RtlIpv6AddressToString(void)
     {
         PCSTR address;
         int ip[8];
-        BOOL todo;
     } tests[] =
     {
         /* ipv4 addresses & ISATAP addresses */
-        { "::13.1.68.3",                                { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 }, TRUE },
-        { "::ffff:13.1.68.3",                           { 0, 0, 0, 0, 0, 0xffff, 0x10d, 0x344 }, TRUE },
-        { "::feff:d01:4403",                            { 0, 0, 0, 0, 0, 0xfffe, 0x10d, 0x344 }, TRUE },
-        { "::fffe:d01:4403",                            { 0, 0, 0, 0, 0, 0xfeff, 0x10d, 0x344 }, TRUE },
-        { "::100:d01:4403",                             { 0, 0, 0, 0, 0, 1, 0x10d, 0x344 }, TRUE },
-        { "::1:d01:4403",                               { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 }, TRUE },
-        { "::ffff:0:4403",                              { 0, 0, 0, 0, 0, 0xffff, 0, 0x344 }, TRUE },
-        { "::ffff:13.1.0.0",                            { 0, 0, 0, 0, 0, 0xffff, 0x10d, 0 }, TRUE },
-        { "::ffff:0:0",                                 { 0, 0, 0, 0, 0, 0xffff, 0, 0 }, TRUE },
-        { "::ffff:0:13.1.68.3",                         { 0, 0, 0, 0, 0xffff, 0, 0x10d, 0x344 }, TRUE },
-        { "::ffff:ffff:d01:4403",                       { 0, 0, 0, 0, 0xffff, 0xffff, 0x10d, 0x344 }, TRUE },
-        { "::ffff:0:0:d01:4403",                        { 0, 0, 0, 0xffff, 0, 0, 0x10d, 0x344 }, TRUE },
-        { "::ffff:255.255.255.255",                     { 0, 0, 0, 0, 0, 0xffff, 0xffff, 0xffff }, TRUE },
-        { "::ffff:129.144.52.38",                       { 0, 0, 0, 0, 0, 0xffff, 0x9081, 0x2634 }, TRUE },
-        { "::5efe:129.144.52.38",                       { 0, 0, 0, 0, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "1111:2222:3333:4444:0:5efe:129.144.52.38",   { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "1111:2222:3333::5efe:129.144.52.38",         { 0x1111, 0x2222, 0x3333, 0, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "1111:2222::5efe:129.144.52.38",              { 0x1111, 0x2222, 0, 0, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "1111::5efe:129.144.52.38",                   { 0x1111, 0, 0, 0, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "::200:5efe:129.144.52.38",                   { 0, 0, 0, 0, 2, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "::100:5efe:8190:3426",                       { 0, 0, 0, 0, 1, 0xfe5e, 0x9081, 0x2634 }, TRUE },
+        { "::13.1.68.3",                                { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 } },
+        { "::123.123.123.123",                          { 0, 0, 0, 0, 0, 0, 0x7b7b, 0x7b7b } },
+        { "::ffff",                                     { 0, 0, 0, 0, 0, 0, 0, 0xffff } },
+        { "::0.1.0.0",                                  { 0, 0, 0, 0, 0, 0, 0x100, 0 } },
+        { "::ffff:13.1.68.3",                           { 0, 0, 0, 0, 0, 0xffff, 0x10d, 0x344 } },
+        { "::feff:d01:4403",                            { 0, 0, 0, 0, 0, 0xfffe, 0x10d, 0x344 } },
+        { "::fffe:d01:4403",                            { 0, 0, 0, 0, 0, 0xfeff, 0x10d, 0x344 } },
+        { "::100:d01:4403",                             { 0, 0, 0, 0, 0, 1, 0x10d, 0x344 } },
+        { "::1:d01:4403",                               { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 } },
+        { "::1:0:d01:4403",                             { 0, 0, 0, 0, 0x100, 0, 0x10d, 0x344 } },
+        { "::fffe:d01:4403",                            { 0, 0, 0, 0, 0, 0xfeff, 0x10d, 0x344 } },
+        { "::fffe:0:d01:4403",                          { 0, 0, 0, 0, 0xfeff, 0, 0x10d, 0x344 } },
+        { "::ffff:0:4403",                              { 0, 0, 0, 0, 0, 0xffff, 0, 0x344 } },
+        { "::ffff:0.1.0.0",                             { 0, 0, 0, 0, 0, 0xffff, 0x100, 0 } },
+        { "::ffff:13.1.0.0",                            { 0, 0, 0, 0, 0, 0xffff, 0x10d, 0 } },
+        { "::ffff:0:0",                                 { 0, 0, 0, 0, 0, 0xffff, 0, 0 } },
+        { "::ffff:0:ffff",                              { 0, 0, 0, 0, 0, 0xffff, 0, 0xffff } },
+        { "::ffff:0:0.1.0.0",                           { 0, 0, 0, 0, 0xffff, 0, 0x100, 0 } },
+        { "::ffff:0:13.1.68.3",                         { 0, 0, 0, 0, 0xffff, 0, 0x10d, 0x344 } },
+        { "::ffff:ffff:d01:4403",                       { 0, 0, 0, 0, 0xffff, 0xffff, 0x10d, 0x344 } },
+        { "::ffff:0:0:d01:4403",                        { 0, 0, 0, 0xffff, 0, 0, 0x10d, 0x344 } },
+        { "::ffff:255.255.255.255",                     { 0, 0, 0, 0, 0, 0xffff, 0xffff, 0xffff } },
+        { "::ffff:129.144.52.38",                       { 0, 0, 0, 0, 0, 0xffff, 0x9081, 0x2634 } },
+        { "::5efe:0.0.0.0",                             { 0, 0, 0, 0, 0, 0xfe5e, 0, 0 } },
+        { "::5efe:129.144.52.38",                       { 0, 0, 0, 0, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "1111:2222:3333:4444:0:5efe:129.144.52.38",   { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "1111:2222:3333::5efe:129.144.52.38",         { 0x1111, 0x2222, 0x3333, 0, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "1111:2222::5efe:129.144.52.38",              { 0x1111, 0x2222, 0, 0, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "1111::5efe:129.144.52.38",                   { 0x1111, 0, 0, 0, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "::300:5efe:8190:3426",                       { 0, 0, 0, 0, 3, 0xfe5e, 0x9081, 0x2634 } },
+        { "::200:5efe:129.144.52.38",                   { 0, 0, 0, 0, 2, 0xfe5e, 0x9081, 0x2634 } },
+        { "::100:5efe:8190:3426",                       { 0, 0, 0, 0, 1, 0xfe5e, 0x9081, 0x2634 } },
         /* 'normal' addresses */
-        { "::1",                                        { 0, 0, 0, 0, 0, 0, 0, 0x100 }, TRUE },
+        { "::1",                                        { 0, 0, 0, 0, 0, 0, 0, 0x100 } },
+        { "::2",                                        { 0, 0, 0, 0, 0, 0, 0, 0x200 } },
         { "0:1:2:3:4:5:6:7",                            { 0, 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x700 } },
-        { "1080::8:800:200c:417a",                      { 0x8010, 0, 0, 0, 0x800, 0x8, 0x0c20, 0x7a41 }, TRUE },
+        { "1080::8:800:200c:417a",                      { 0x8010, 0, 0, 0, 0x800, 0x8, 0x0c20, 0x7a41 } },
         { "1111:2222:3333:4444:5555:6666:7b7b:7b7b",    { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7b7b, 0x7b7b } },
         { "1111:2222:3333:4444:5555:6666:7777:8888",    { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x8888 } },
-        { "1111:2222:3333:4444:5555:6666::",            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0, 0 }, TRUE },
+        { "1111:2222:3333:4444:5555:6666::",            { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0, 0 } },
         { "1111:2222:3333:4444:5555:6666:0:8888",       { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0, 0x8888 } },
-        { "1111:2222:3333:4444:5555::",                 { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0, 0 }, TRUE },
+        { "1111:2222:3333:4444:5555::",                 { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0, 0 } },
         { "1111:2222:3333:4444:5555:0:7b7b:7b7b",       { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0x7b7b, 0x7b7b } },
         { "1111:2222:3333:4444:5555:0:7777:8888",       { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0x7777, 0x8888 } },
-        { "1111:2222:3333:4444:5555::8888",             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0, 0x8888 }, TRUE },
-        { "1111::",                                     { 0x1111, 0, 0, 0, 0, 0, 0, 0 }, TRUE },
-        { "1111::7b7b:7b7b",                            { 0x1111, 0, 0, 0, 0, 0, 0x7b7b, 0x7b7b }, TRUE },
+        { "1111:2222:3333:4444:5555::8888",             { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0, 0, 0x8888 } },
+        { "1111::",                                     { 0x1111, 0, 0, 0, 0, 0, 0, 0 } },
+        { "1111::7b7b:7b7b",                            { 0x1111, 0, 0, 0, 0, 0, 0x7b7b, 0x7b7b } },
         { "1111:0:3333:4444:5555:6666:7b7b:7b7b",       { 0x1111, 0, 0x3333, 0x4444, 0x5555, 0x6666, 0x7b7b, 0x7b7b } },
         { "1111:0:3333:4444:5555:6666:7777:8888",       { 0x1111, 0, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x8888 } },
-        { "1111::4444:5555:6666:7b7b:7b7b",             { 0x1111, 0, 0, 0x4444, 0x5555, 0x6666, 0x7b7b, 0x7b7b }, TRUE },
-        { "1111::4444:5555:6666:7777:8888",             { 0x1111, 0, 0, 0x4444, 0x5555, 0x6666, 0x7777, 0x8888 }, TRUE },
-        { "1111::5555:6666:7b7b:7b7b",                  { 0x1111, 0, 0, 0, 0x5555, 0x6666, 0x7b7b, 0x7b7b }, TRUE },
-        { "1111::5555:6666:7777:8888",                  { 0x1111, 0, 0, 0, 0x5555, 0x6666, 0x7777, 0x8888 }, TRUE },
-        { "1111::6666:7b7b:7b7b",                       { 0x1111, 0, 0, 0, 0, 0x6666, 0x7b7b, 0x7b7b }, TRUE },
-        { "1111::6666:7777:8888",                       { 0x1111, 0, 0, 0, 0, 0x6666, 0x7777, 0x8888 }, TRUE },
-        { "1111::7777:8888",                            { 0x1111, 0, 0, 0, 0, 0, 0x7777, 0x8888 }, TRUE },
-        { "1111::8888",                                 { 0x1111, 0, 0, 0, 0, 0, 0, 0x8888 }, TRUE },
+        { "1111::4444:5555:6666:7b7b:7b7b",             { 0x1111, 0, 0, 0x4444, 0x5555, 0x6666, 0x7b7b, 0x7b7b } },
+        { "1111::4444:5555:6666:7777:8888",             { 0x1111, 0, 0, 0x4444, 0x5555, 0x6666, 0x7777, 0x8888 } },
+        { "1111::5555:6666:7b7b:7b7b",                  { 0x1111, 0, 0, 0, 0x5555, 0x6666, 0x7b7b, 0x7b7b } },
+        { "1111::5555:6666:7777:8888",                  { 0x1111, 0, 0, 0, 0x5555, 0x6666, 0x7777, 0x8888 } },
+        { "1111::6666:7b7b:7b7b",                       { 0x1111, 0, 0, 0, 0, 0x6666, 0x7b7b, 0x7b7b } },
+        { "1111::6666:7777:8888",                       { 0x1111, 0, 0, 0, 0, 0x6666, 0x7777, 0x8888 } },
+        { "1111::7777:8888",                            { 0x1111, 0, 0, 0, 0, 0, 0x7777, 0x8888 } },
+        { "1111::8888",                                 { 0x1111, 0, 0, 0, 0, 0, 0, 0x8888 } },
         { "1:2:3:4:5:6:102:304",                        { 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x201, 0x403 } },
         { "1:2:3:4:5:6:7:8",                            { 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x700, 0x800 } },
-        { "1:2:3:4:5:6::",                              { 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0, 0 }, TRUE },
+        { "1:2:3:4:5:6::",                              { 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0, 0 } },
         { "1:2:3:4:5:6:0:8",                            { 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0, 0x800 } },
-        { "2001:0:1234::c1c0:abcd:876",                 { 0x120, 0, 0x3412, 0, 0, 0xc0c1, 0xcdab, 0x7608 }, TRUE },
+        { "2001:0:1234::c1c0:abcd:876",                 { 0x120, 0, 0x3412, 0, 0, 0xc0c1, 0xcdab, 0x7608 } },
         { "2001:0:4136:e378:8000:63bf:3fff:fdd2",       { 0x120, 0, 0x3641, 0x78e3, 0x80, 0xbf63, 0xff3f, 0xd2fd } },
-        { "2001:db8::1428:57ab",                        { 0x120, 0xb80d, 0, 0, 0, 0, 0x2814, 0xab57 }, TRUE },
+        { "2001:db8::1428:57ab",                        { 0x120, 0xb80d, 0, 0, 0, 0, 0x2814, 0xab57 } },
         { "2001:db8:1234:ffff:ffff:ffff:ffff:ffff",     { 0x120, 0xb80d, 0x3412, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff } },
         { "2001:0:ce49:7601:2cad:dfff:7c94:fffe",       { 0x120, 0, 0x49ce, 0x176, 0xad2c, 0xffdf, 0x947c, 0xfeff } },
-        { "2001:db8:85a3::8a2e:370:7334",               { 0x120, 0xb80d, 0xa385, 0, 0, 0x2e8a, 0x7003, 0x3473 }, TRUE },
-        { "3ffe:b00::1:0:0:a",                          { 0xfe3f, 0xb, 0, 0, 0x100, 0, 0, 0xa00 }, TRUE },
-        { "::a:b:c:d:e",                                { 0, 0, 0, 0xa00, 0xb00, 0xc00, 0xd00, 0xe00 }, TRUE },
-        { "::123.123.123.123",                          { 0, 0, 0, 0, 0, 0, 0x7b7b, 0x7b7b }, TRUE },
+        { "2001:db8:85a3::8a2e:370:7334",               { 0x120, 0xb80d, 0xa385, 0, 0, 0x2e8a, 0x7003, 0x3473 } },
+        { "3ffe:b00::1:0:0:a",                          { 0xfe3f, 0xb, 0, 0, 0x100, 0, 0, 0xa00 } },
+        { "::a:b:c:d:e",                                { 0, 0, 0, 0xa00, 0xb00, 0xc00, 0xd00, 0xe00 } },
         { "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",    { 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff } },
         { "1111:2222:3333:4444:5555:6666:7777:1",       { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x100 } },
         { "1111:2222:3333:4444:5555:6666:7777:8888",    { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x8888 } },
-        { "1111:2222::",                                { 0x1111, 0x2222, 0, 0, 0, 0, 0, 0 }, TRUE },
-        { "1111::3333:4444:5555:6666:7777",             { 0x1111, 0, 0, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777 }, TRUE },
-        { "1111:2222::",                                { 0x1111, 0x2222, 0, 0, 0, 0, 0, 0 }, TRUE },
-        { "1111::3333",                                 { 0x1111, 0, 0, 0, 0, 0, 0, 0x3333 }, TRUE },
-        { "2001:0:1234::c1c0:abcd:876",                 { 0x120, 0, 0x3412, 0, 0, 0xc0c1, 0xcdab, 0x7608 }, TRUE },
-        { "2001::ffd3",                                 { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff }, TRUE },
+        { "1111:2222::",                                { 0x1111, 0x2222, 0, 0, 0, 0, 0, 0 } },
+        { "1111::3333:4444:5555:6666:7777",             { 0x1111, 0, 0, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777 } },
+        { "1111:2222::",                                { 0x1111, 0x2222, 0, 0, 0, 0, 0, 0 } },
+        { "1111::3333",                                 { 0x1111, 0, 0, 0, 0, 0, 0, 0x3333 } },
+        { "2001:0:1234::c1c0:abcd:876",                 { 0x120, 0, 0x3412, 0, 0, 0xc0c1, 0xcdab, 0x7608 } },
+        { "2001::ffd3",                                 { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff } },
     };
     unsigned int i;
-
-    if (!pRtlIpv6AddressToStringA)
-    {
-        skip("RtlIpv6AddressToStringA not available\n");
-        return;
-    }
 
     memset(buffer, '#', sizeof(buffer));
     buffer[sizeof(buffer)-1] = 0;
     memset(&ip, 0, sizeof(ip));
-    result = pRtlIpv6AddressToStringA(&ip, buffer);
+    result = RtlIpv6AddressToStringA(&ip, buffer);
 
     len = strlen(buffer);
-todo_wine
     ok(result == (buffer + len) && !strcmp(buffer, "::"),
        "got %p with '%s' (expected %p with '::')\n", result, buffer, buffer + len);
 
-    result = pRtlIpv6AddressToStringA(&ip, NULL);
-todo_wine
+    result = RtlIpv6AddressToStringA(&ip, NULL);
     ok(result == (LPCSTR)~0 || broken(result == (LPCSTR)len) /* WinXP / Win2k3 */,
        "got %p, expected %p\n", result, (LPCSTR)~0);
 
@@ -1885,9 +1827,8 @@ todo_wine
         memset(buffer, '#', sizeof(buffer));
         buffer[sizeof(buffer)-1] = 0;
 
-        result = pRtlIpv6AddressToStringA(&ip, buffer);
+        result = RtlIpv6AddressToStringA(&ip, buffer);
         len = strlen(buffer);
-todo_wine_if(tests[i].todo)
         ok(result == (buffer + len) && !strcmp(buffer, tests[i].address),
            "got %p with '%s' (expected %p with '%s')\n", result, buffer, buffer + len, tests[i].address);
 
@@ -1909,37 +1850,36 @@ static void test_RtlIpv6AddressToStringEx(void)
         ULONG scopeid;
         USHORT port;
         int ip[8];
-        BOOL todo;
     } tests[] =
     {
         /* ipv4 addresses & ISATAP addresses */
-        { "::13.1.68.3",                                                0,          0, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 }, TRUE },
-        { "::13.1.68.3%1",                                              1,          0, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 }, TRUE },
-        { "::13.1.68.3%4294949819",                                     0xffffbbbb, 0, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 }, TRUE },
-        { "[::13.1.68.3%4294949819]:65518",                             0xffffbbbb, 0xeeff, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 }, TRUE },
-        { "[::13.1.68.3%4294949819]:256",                               0xffffbbbb, 1, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 }, TRUE },
-        { "[::13.1.68.3]:256",                                          0,          1, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 }, TRUE },
+        { "::13.1.68.3",                                                0,          0, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 } },
+        { "::13.1.68.3%1",                                              1,          0, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 } },
+        { "::13.1.68.3%4294949819",                                     0xffffbbbb, 0, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 } },
+        { "[::13.1.68.3%4294949819]:65518",                             0xffffbbbb, 0xeeff, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 } },
+        { "[::13.1.68.3%4294949819]:256",                               0xffffbbbb, 1, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 } },
+        { "[::13.1.68.3]:256",                                          0,          1, { 0, 0, 0, 0, 0, 0, 0x10d, 0x344 } },
 
-        { "::1:d01:4403",                                               0,          0, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 }, TRUE },
-        { "::1:d01:4403%1",                                             1,          0, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 }, TRUE },
-        { "::1:d01:4403%4294949819",                                    0xffffbbbb, 0, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 }, TRUE },
-        { "[::1:d01:4403%4294949819]:65518",                            0xffffbbbb, 0xeeff, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 }, TRUE },
-        { "[::1:d01:4403%4294949819]:256",                              0xffffbbbb, 1, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 }, TRUE },
-        { "[::1:d01:4403]:256",                                         0,          1, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 }, TRUE },
+        { "::1:d01:4403",                                               0,          0, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 } },
+        { "::1:d01:4403%1",                                             1,          0, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 } },
+        { "::1:d01:4403%4294949819",                                    0xffffbbbb, 0, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 } },
+        { "[::1:d01:4403%4294949819]:65518",                            0xffffbbbb, 0xeeff, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 } },
+        { "[::1:d01:4403%4294949819]:256",                              0xffffbbbb, 1, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 } },
+        { "[::1:d01:4403]:256",                                         0,          1, { 0, 0, 0, 0, 0, 0x100, 0x10d, 0x344 } },
 
-        { "1111:2222:3333:4444:0:5efe:129.144.52.38",                   0,          0, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "1111:2222:3333:4444:0:5efe:129.144.52.38%1",                 1,          0, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "1111:2222:3333:4444:0:5efe:129.144.52.38%4294949819",        0xffffbbbb, 0, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "[1111:2222:3333:4444:0:5efe:129.144.52.38%4294949819]:65518",0xffffbbbb, 0xeeff, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "[1111:2222:3333:4444:0:5efe:129.144.52.38%4294949819]:256",  0xffffbbbb, 1, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
-        { "[1111:2222:3333:4444:0:5efe:129.144.52.38]:256",             0,          1, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 }, TRUE },
+        { "1111:2222:3333:4444:0:5efe:129.144.52.38",                   0,          0, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "1111:2222:3333:4444:0:5efe:129.144.52.38%1",                 1,          0, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "1111:2222:3333:4444:0:5efe:129.144.52.38%4294949819",        0xffffbbbb, 0, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "[1111:2222:3333:4444:0:5efe:129.144.52.38%4294949819]:65518",0xffffbbbb, 0xeeff, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "[1111:2222:3333:4444:0:5efe:129.144.52.38%4294949819]:256",  0xffffbbbb, 1, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 } },
+        { "[1111:2222:3333:4444:0:5efe:129.144.52.38]:256",             0,          1, { 0x1111, 0x2222, 0x3333, 0x4444, 0, 0xfe5e, 0x9081, 0x2634 } },
 
-        { "::1",                                                        0,          0, { 0, 0, 0, 0, 0, 0, 0, 0x100 }, TRUE },
-        { "::1%1",                                                      1,          0, { 0, 0, 0, 0, 0, 0, 0, 0x100 }, TRUE },
-        { "::1%4294949819",                                             0xffffbbbb, 0, { 0, 0, 0, 0, 0, 0, 0, 0x100 }, TRUE },
-        { "[::1%4294949819]:65518",                                     0xffffbbbb, 0xeeff, { 0, 0, 0, 0, 0, 0, 0, 0x100 }, TRUE },
-        { "[::1%4294949819]:256",                                       0xffffbbbb, 1, { 0, 0, 0, 0, 0, 0, 0, 0x100 }, TRUE },
-        { "[::1]:256",                                                  0,          1, { 0, 0, 0, 0, 0, 0, 0, 0x100 }, TRUE },
+        { "::1",                                                        0,          0, { 0, 0, 0, 0, 0, 0, 0, 0x100 } },
+        { "::1%1",                                                      1,          0, { 0, 0, 0, 0, 0, 0, 0, 0x100 } },
+        { "::1%4294949819",                                             0xffffbbbb, 0, { 0, 0, 0, 0, 0, 0, 0, 0x100 } },
+        { "[::1%4294949819]:65518",                                     0xffffbbbb, 0xeeff, { 0, 0, 0, 0, 0, 0, 0, 0x100 } },
+        { "[::1%4294949819]:256",                                       0xffffbbbb, 1, { 0, 0, 0, 0, 0, 0, 0, 0x100 } },
+        { "[::1]:256",                                                  0,          1, { 0, 0, 0, 0, 0, 0, 0, 0x100 } },
 
         { "1111:2222:3333:4444:5555:6666:7b7b:7b7b",                    0,          0, { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7b7b, 0x7b7b } },
         { "1111:2222:3333:4444:5555:6666:7b7b:7b7b%1",                  1,          0, { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7b7b, 0x7b7b } },
@@ -1948,19 +1888,19 @@ static void test_RtlIpv6AddressToStringEx(void)
         { "[1111:2222:3333:4444:5555:6666:7b7b:7b7b%4294949819]:256",   0xffffbbbb, 1, { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7b7b, 0x7b7b } },
         { "[1111:2222:3333:4444:5555:6666:7b7b:7b7b]:256",              0,          1, { 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7b7b, 0x7b7b } },
 
-        { "1111::",                                                     0,          0, { 0x1111, 0, 0, 0, 0, 0, 0, 0 }, TRUE },
-        { "1111::%1",                                                   1,          0, { 0x1111, 0, 0, 0, 0, 0, 0, 0 }, TRUE },
-        { "1111::%4294949819",                                          0xffffbbbb, 0, { 0x1111, 0, 0, 0, 0, 0, 0, 0 }, TRUE },
-        { "[1111::%4294949819]:65518",                                  0xffffbbbb, 0xeeff, { 0x1111, 0, 0, 0, 0, 0, 0, 0 }, TRUE },
-        { "[1111::%4294949819]:256",                                    0xffffbbbb, 1, { 0x1111, 0, 0, 0, 0, 0, 0, 0 }, TRUE },
-        { "[1111::]:256",                                               0,          1, { 0x1111, 0, 0, 0, 0, 0, 0, 0 }, TRUE },
+        { "1111::",                                                     0,          0, { 0x1111, 0, 0, 0, 0, 0, 0, 0 } },
+        { "1111::%1",                                                   1,          0, { 0x1111, 0, 0, 0, 0, 0, 0, 0 } },
+        { "1111::%4294949819",                                          0xffffbbbb, 0, { 0x1111, 0, 0, 0, 0, 0, 0, 0 } },
+        { "[1111::%4294949819]:65518",                                  0xffffbbbb, 0xeeff, { 0x1111, 0, 0, 0, 0, 0, 0, 0 } },
+        { "[1111::%4294949819]:256",                                    0xffffbbbb, 1, { 0x1111, 0, 0, 0, 0, 0, 0, 0 } },
+        { "[1111::]:256",                                               0,          1, { 0x1111, 0, 0, 0, 0, 0, 0, 0 } },
 
-        { "2001::ffd3",                                                 0,          0, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff }, TRUE },
-        { "2001::ffd3%1",                                               1,          0, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff }, TRUE },
-        { "2001::ffd3%4294949819",                                      0xffffbbbb, 0, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff }, TRUE },
-        { "[2001::ffd3%4294949819]:65518",                              0xffffbbbb, 0xeeff, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff }, TRUE },
-        { "[2001::ffd3%4294949819]:256",                                0xffffbbbb, 1, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff }, TRUE },
-        { "[2001::ffd3]:256",                                           0,          1, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff }, TRUE },
+        { "2001::ffd3",                                                 0,          0, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff } },
+        { "2001::ffd3%1",                                               1,          0, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff } },
+        { "2001::ffd3%4294949819",                                      0xffffbbbb, 0, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff } },
+        { "[2001::ffd3%4294949819]:65518",                              0xffffbbbb, 0xeeff, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff } },
+        { "[2001::ffd3%4294949819]:256",                                0xffffbbbb, 1, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff } },
+        { "[2001::ffd3]:256",                                           0,          1, { 0x120, 0, 0, 0, 0, 0, 0, 0xd3ff } },
     };
     unsigned int i;
 
@@ -1977,7 +1917,6 @@ static void test_RtlIpv6AddressToStringEx(void)
     res = pRtlIpv6AddressToStringExA(&ip, 0, 0, buffer, &len);
 
     ok(res == STATUS_SUCCESS, "[validate] res = 0x%08x, expected STATUS_SUCCESS\n", res);
-todo_wine
     ok(len == 3 && !strcmp(buffer, "::"),
         "got len %d with '%s' (expected 3 with '::')\n", len, buffer);
 
@@ -2001,7 +1940,6 @@ todo_wine
     res = pRtlIpv6AddressToStringExA(&ip, 0, 0, buffer, &len);
     ok(res == STATUS_INVALID_PARAMETER, "[null length] res = 0x%08x, expected STATUS_INVALID_PARAMETER\n", res);
     ok(buffer[0] == '#', "got first char %c (expected '#')\n", buffer[0]);
-todo_wine
     ok(len == 3, "got len %d (expected len 3)\n", len);
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
@@ -2014,7 +1952,6 @@ todo_wine
         res = pRtlIpv6AddressToStringExA(&ip, tests[i].scopeid, tests[i].port, buffer, &len);
 
         ok(res == STATUS_SUCCESS, "[validate] res = 0x%08x, expected STATUS_SUCCESS\n", res);
-todo_wine_if(tests[i].todo)
         ok(len == (strlen(tests[i].address) + 1) && !strcmp(buffer, tests[i].address),
            "got len %d with '%s' (expected %d with '%s')\n", len, buffer, (int)strlen(tests[i].address), tests[i].address);
     }
@@ -2028,14 +1965,11 @@ static void compare_RtlIpv6StringToAddressW(PCSTR name_a, int terminator_offset_
     IN6_ADDR ip;
     PCWSTR terminator;
 
-    if (!pRtlIpv6StringToAddressW)
-        return;
-
-    pRtlMultiByteToUnicodeN(name, sizeof(name), NULL, name_a, strlen(name_a) + 1);
+    RtlMultiByteToUnicodeN(name, sizeof(name), NULL, name_a, strlen(name_a) + 1);
 
     init_ip6(&ip, NULL);
     terminator = (void *)0xdeadbeef;
-    res = pRtlIpv6StringToAddressW(name, &terminator, &ip);
+    res = RtlIpv6StringToAddressW(name, &terminator, &ip);
     ok(res == res_a, "[W:%s] res = 0x%08x, expected 0x%08x\n", name_a, res, res_a);
 
     if (terminator_offset_a < 0)
@@ -2067,28 +2001,16 @@ static void test_RtlIpv6StringToAddress(void)
     PCSTR terminator;
     unsigned int i;
 
-    if (!pRtlIpv6StringToAddressW)
-    {
-        skip("RtlIpv6StringToAddressW not available\n");
-        /* we can continue, just not test W */
-    }
-
-    if (!pRtlIpv6StringToAddressA)
-    {
-        skip("RtlIpv6StringToAddressA not available\n");
-        return; /* all tests are centered around A, we cannot continue */
-    }
-
-    res = pRtlIpv6StringToAddressA("::", &terminator, &ip);
+    res = RtlIpv6StringToAddressA("::", &terminator, &ip);
     ok(res == STATUS_SUCCESS, "[validate] res = 0x%08x, expected STATUS_SUCCESS\n", res);
     if (0)
     {
         /* any of these crash */
-        res = pRtlIpv6StringToAddressA(NULL, &terminator, &ip);
+        res = RtlIpv6StringToAddressA(NULL, &terminator, &ip);
         ok(res == STATUS_INVALID_PARAMETER, "[null string] res = 0x%08x, expected STATUS_INVALID_PARAMETER\n", res);
-        res = pRtlIpv6StringToAddressA("::", NULL, &ip);
+        res = RtlIpv6StringToAddressA("::", NULL, &ip);
         ok(res == STATUS_INVALID_PARAMETER, "[null terminator] res = 0x%08x, expected STATUS_INVALID_PARAMETER\n", res);
-        res = pRtlIpv6StringToAddressA("::", &terminator, NULL);
+        res = RtlIpv6StringToAddressA("::", &terminator, NULL);
         ok(res == STATUS_INVALID_PARAMETER, "[null result] res = 0x%08x, expected STATUS_INVALID_PARAMETER\n", res);
     }
 
@@ -2099,7 +2021,7 @@ static void test_RtlIpv6StringToAddress(void)
     {
         init_ip6(&ip, NULL);
         terminator = (void *)0xdeadbeef;
-        res = pRtlIpv6StringToAddressA(ipv6_tests[i].address, &terminator, &ip);
+        res = RtlIpv6StringToAddressA(ipv6_tests[i].address, &terminator, &ip);
         compare_RtlIpv6StringToAddressW(ipv6_tests[i].address, (terminator != (void *)0xdeadbeef) ?
                                         (terminator - ipv6_tests[i].address) : -1, &ip, res);
 
@@ -2154,7 +2076,7 @@ static void compare_RtlIpv6StringToAddressExW(PCSTR name_a, const struct in6_add
     if (!pRtlIpv6StringToAddressExW)
         return;
 
-    pRtlMultiByteToUnicodeN(name, sizeof(name), NULL, name_a, strlen(name_a) + 1);
+    RtlMultiByteToUnicodeN(name, sizeof(name), NULL, name_a, strlen(name_a) + 1);
 
     init_ip6(&ip, NULL);
     res = pRtlIpv6StringToAddressExW(name, &ip, &scope, &port);
@@ -2411,12 +2333,6 @@ static void test_LdrAddRefDll(void)
     NTSTATUS status;
     BOOL ret;
 
-    if (!pLdrAddRefDll)
-    {
-        win_skip( "LdrAddRefDll not supported\n" );
-        return;
-    }
-
     mod = LoadLibraryA("comctl32.dll");
     ok(mod != NULL, "got %p\n", mod);
     ret = FreeLibrary(mod);
@@ -2428,7 +2344,7 @@ static void test_LdrAddRefDll(void)
     /* load, addref and release 2 times */
     mod = LoadLibraryA("comctl32.dll");
     ok(mod != NULL, "got %p\n", mod);
-    status = pLdrAddRefDll(0, mod);
+    status = LdrAddRefDll(0, mod);
     ok(status == STATUS_SUCCESS, "got 0x%08x\n", status);
     ret = FreeLibrary(mod);
     ok(ret, "got %d\n", ret);
@@ -2444,7 +2360,7 @@ static void test_LdrAddRefDll(void)
     /* pin refcount */
     mod = LoadLibraryA("comctl32.dll");
     ok(mod != NULL, "got %p\n", mod);
-    status = pLdrAddRefDll(LDR_ADDREF_DLL_PIN, mod);
+    status = LdrAddRefDll(LDR_ADDREF_DLL_PIN, mod);
     ok(status == STATUS_SUCCESS, "got 0x%08x\n", status);
 
     ret = FreeLibrary(mod);
@@ -2466,70 +2382,58 @@ static void test_LdrLockLoaderLock(void)
     ULONG result;
     NTSTATUS status;
 
-    if (!pLdrLockLoaderLock)
-    {
-        win_skip("LdrLockLoaderLock() is not available\n");
-        return;
-    }
-
     /* invalid flags */
     result = 10;
     magic = 0xdeadbeef;
-    status = pLdrLockLoaderLock(0x10, &result, &magic);
+    status = LdrLockLoaderLock(0x10, &result, &magic);
     ok(status == STATUS_INVALID_PARAMETER_1, "got 0x%08x\n", status);
     ok(result == 0, "got %d\n", result);
     ok(magic == 0, "got %lx\n", magic);
 
     magic = 0xdeadbeef;
-    status = pLdrLockLoaderLock(0x10, NULL, &magic);
+    status = LdrLockLoaderLock(0x10, NULL, &magic);
     ok(status == STATUS_INVALID_PARAMETER_1, "got 0x%08x\n", status);
     ok(magic == 0, "got %lx\n", magic);
 
     result = 10;
-    status = pLdrLockLoaderLock(0x10, &result, NULL);
+    status = LdrLockLoaderLock(0x10, &result, NULL);
     ok(status == STATUS_INVALID_PARAMETER_1, "got 0x%08x\n", status);
     ok(result == 0, "got %d\n", result);
 
     /* non-blocking mode, result is null */
     magic = 0xdeadbeef;
-    status = pLdrLockLoaderLock(0x2, NULL, &magic);
+    status = LdrLockLoaderLock(0x2, NULL, &magic);
     ok(status == STATUS_INVALID_PARAMETER_2, "got 0x%08x\n", status);
     ok(magic == 0, "got %lx\n", magic);
 
     /* magic pointer is null */
     result = 10;
-    status = pLdrLockLoaderLock(0, &result, NULL);
+    status = LdrLockLoaderLock(0, &result, NULL);
     ok(status == STATUS_INVALID_PARAMETER_3, "got 0x%08x\n", status);
     ok(result == 0, "got %d\n", result);
 
     /* lock in non-blocking mode */
     result = 0;
     magic = 0;
-    status = pLdrLockLoaderLock(0x2, &result, &magic);
+    status = LdrLockLoaderLock(0x2, &result, &magic);
     ok(status == STATUS_SUCCESS, "got 0x%08x\n", status);
     ok(result == 1, "got %d\n", result);
     ok(magic != 0, "got %lx\n", magic);
-    pLdrUnlockLoaderLock(0, magic);
+    LdrUnlockLoaderLock(0, magic);
 }
 
 static void test_RtlCompressBuffer(void)
 {
     ULONG compress_workspace, decompress_workspace;
-    static const UCHAR test_buffer[] = "WineWineWine";
+    static UCHAR test_buffer[] = "WineWineWine";
     static UCHAR buf1[0x1000], buf2[0x1000];
     ULONG final_size, buf_size;
     UCHAR *workspace = NULL;
     NTSTATUS status;
 
-    if (!pRtlCompressBuffer || !pRtlDecompressBuffer || !pRtlGetCompressionWorkSpaceSize)
-    {
-        win_skip("skipping RtlCompressBuffer tests, required functions not available\n");
-        return;
-    }
-
     compress_workspace = decompress_workspace = 0xdeadbeef;
-    status = pRtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_LZNT1, &compress_workspace,
-                                             &decompress_workspace);
+    status = RtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_LZNT1, &compress_workspace,
+                                            &decompress_workspace);
     ok(status == STATUS_SUCCESS, "got wrong status 0x%08x\n", status);
     ok(compress_workspace != 0, "got wrong compress_workspace %u\n", compress_workspace);
     workspace = HeapAlloc(GetProcessHeap(), 0, compress_workspace);
@@ -2537,28 +2441,28 @@ static void test_RtlCompressBuffer(void)
 
     /* test compression format / engine */
     final_size = 0xdeadbeef;
-    status = pRtlCompressBuffer(COMPRESSION_FORMAT_NONE, test_buffer, sizeof(test_buffer),
-                                buf1, sizeof(buf1) - 1, 4096, &final_size, workspace);
+    status = RtlCompressBuffer(COMPRESSION_FORMAT_NONE, test_buffer, sizeof(test_buffer),
+                               buf1, sizeof(buf1) - 1, 4096, &final_size, workspace);
     ok(status == STATUS_INVALID_PARAMETER, "got wrong status 0x%08x\n", status);
     ok(final_size == 0xdeadbeef, "got wrong final_size %u\n", final_size);
 
     final_size = 0xdeadbeef;
-    status = pRtlCompressBuffer(COMPRESSION_FORMAT_DEFAULT, test_buffer, sizeof(test_buffer),
-                                buf1, sizeof(buf1) - 1, 4096, &final_size, workspace);
+    status = RtlCompressBuffer(COMPRESSION_FORMAT_DEFAULT, test_buffer, sizeof(test_buffer),
+                               buf1, sizeof(buf1) - 1, 4096, &final_size, workspace);
     ok(status == STATUS_INVALID_PARAMETER, "got wrong status 0x%08x\n", status);
     ok(final_size == 0xdeadbeef, "got wrong final_size %u\n", final_size);
 
     final_size = 0xdeadbeef;
-    status = pRtlCompressBuffer(0xFF, test_buffer, sizeof(test_buffer),
-                                buf1, sizeof(buf1) - 1, 4096, &final_size, workspace);
+    status = RtlCompressBuffer(0xFF, test_buffer, sizeof(test_buffer),
+                               buf1, sizeof(buf1) - 1, 4096, &final_size, workspace);
     ok(status == STATUS_UNSUPPORTED_COMPRESSION, "got wrong status 0x%08x\n", status);
     ok(final_size == 0xdeadbeef, "got wrong final_size %u\n", final_size);
 
     /* test compression */
     final_size = 0xdeadbeef;
     memset(buf1, 0x11, sizeof(buf1));
-    status = pRtlCompressBuffer(COMPRESSION_FORMAT_LZNT1, test_buffer, sizeof(test_buffer),
-                                buf1, sizeof(buf1), 4096, &final_size, workspace);
+    status = RtlCompressBuffer(COMPRESSION_FORMAT_LZNT1, test_buffer, sizeof(test_buffer),
+                               buf1, sizeof(buf1), 4096, &final_size, workspace);
     ok(status == STATUS_SUCCESS, "got wrong status 0x%08x\n", status);
     ok((*(WORD *)buf1 & 0x7000) == 0x3000, "no chunk signature found %04x\n", *(WORD *)buf1);
     todo_wine
@@ -2568,8 +2472,8 @@ static void test_RtlCompressBuffer(void)
     buf_size = final_size;
     final_size = 0xdeadbeef;
     memset(buf2, 0x11, sizeof(buf2));
-    status = pRtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf2, sizeof(buf2),
-                                  buf1, buf_size, &final_size);
+    status = RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf2, sizeof(buf2),
+                                 buf1, buf_size, &final_size);
     ok(status == STATUS_SUCCESS, "got wrong status 0x%08x\n", status);
     ok(final_size == sizeof(test_buffer), "got wrong final_size %u\n", final_size);
     ok(!memcmp(buf2, test_buffer, sizeof(test_buffer)), "got wrong decoded data\n");
@@ -2578,8 +2482,8 @@ static void test_RtlCompressBuffer(void)
     /* buffer too small */
     final_size = 0xdeadbeef;
     memset(buf1, 0x11, sizeof(buf1));
-    status = pRtlCompressBuffer(COMPRESSION_FORMAT_LZNT1, test_buffer, sizeof(test_buffer),
-                                buf1, 4, 4096, &final_size, workspace);
+    status = RtlCompressBuffer(COMPRESSION_FORMAT_LZNT1, test_buffer, sizeof(test_buffer),
+                               buf1, 4, 4096, &final_size, workspace);
     ok(status == STATUS_BUFFER_TOO_SMALL, "got wrong status 0x%08x\n", status);
 
     HeapFree(GetProcessHeap(), 0, workspace);
@@ -2590,35 +2494,29 @@ static void test_RtlGetCompressionWorkSpaceSize(void)
     ULONG compress_workspace, decompress_workspace;
     NTSTATUS status;
 
-    if (!pRtlGetCompressionWorkSpaceSize)
-    {
-        win_skip("RtlGetCompressionWorkSpaceSize is not available\n");
-        return;
-    }
-
     /* test invalid format / engine */
-    status = pRtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_NONE, &compress_workspace,
-                                             &decompress_workspace);
+    status = RtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_NONE, &compress_workspace,
+                                            &decompress_workspace);
     ok(status == STATUS_INVALID_PARAMETER, "got wrong status 0x%08x\n", status);
 
-    status = pRtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_DEFAULT, &compress_workspace,
-                                             &decompress_workspace);
+    status = RtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_DEFAULT, &compress_workspace,
+                                            &decompress_workspace);
     ok(status == STATUS_INVALID_PARAMETER, "got wrong status 0x%08x\n", status);
 
-    status = pRtlGetCompressionWorkSpaceSize(0xFF, &compress_workspace, &decompress_workspace);
+    status = RtlGetCompressionWorkSpaceSize(0xFF, &compress_workspace, &decompress_workspace);
     ok(status == STATUS_UNSUPPORTED_COMPRESSION, "got wrong status 0x%08x\n", status);
 
     /* test LZNT1 with normal and maximum compression */
     compress_workspace = decompress_workspace = 0xdeadbeef;
-    status = pRtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_LZNT1, &compress_workspace,
-                                             &decompress_workspace);
+    status = RtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_LZNT1, &compress_workspace,
+                                            &decompress_workspace);
     ok(status == STATUS_SUCCESS, "got wrong status 0x%08x\n", status);
     ok(compress_workspace != 0, "got wrong compress_workspace %u\n", compress_workspace);
     ok(decompress_workspace == 0x1000, "got wrong decompress_workspace %u\n", decompress_workspace);
 
     compress_workspace = decompress_workspace = 0xdeadbeef;
-    status = pRtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_LZNT1 | COMPRESSION_ENGINE_MAXIMUM,
-                                             &compress_workspace, &decompress_workspace);
+    status = RtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_LZNT1 | COMPRESSION_ENGINE_MAXIMUM,
+                                            &compress_workspace, &decompress_workspace);
     ok(status == STATUS_SUCCESS, "got wrong status 0x%08x\n", status);
     ok(compress_workspace != 0, "got wrong compress_workspace %u\n", compress_workspace);
     ok(decompress_workspace == 0x1000, "got wrong decompress_workspace %u\n", decompress_workspace);
@@ -2651,7 +2549,7 @@ static BOOL is_incomplete_chunk(const UCHAR *compressed, ULONG compressed_size, 
 
 static void test_RtlDecompressBuffer(void)
 {
-    static const struct
+    static struct
     {
         UCHAR compressed[32];
         ULONG compressed_size;
@@ -2858,28 +2756,22 @@ static void test_RtlDecompressBuffer(void)
     ULONG final_size;
     int i;
 
-    if (!pRtlDecompressBuffer || !pRtlDecompressFragment)
-    {
-        win_skip("RtlDecompressBuffer or RtlDecompressFragment is not available\n");
-        return;
-    }
-
     /* test compression format / engine */
     final_size = 0xdeadbeef;
-    status = pRtlDecompressBuffer(COMPRESSION_FORMAT_NONE, buf, sizeof(buf), test_lznt[0].compressed,
-                                  test_lznt[0].compressed_size, &final_size);
+    status = RtlDecompressBuffer(COMPRESSION_FORMAT_NONE, buf, sizeof(buf), test_lznt[0].compressed,
+                                 test_lznt[0].compressed_size, &final_size);
     ok(status == STATUS_INVALID_PARAMETER, "got wrong status 0x%08x\n", status);
     ok(final_size == 0xdeadbeef, "got wrong final_size %u\n", final_size);
 
     final_size = 0xdeadbeef;
-    status = pRtlDecompressBuffer(COMPRESSION_FORMAT_DEFAULT, buf, sizeof(buf), test_lznt[0].compressed,
-                                  test_lznt[0].compressed_size, &final_size);
+    status = RtlDecompressBuffer(COMPRESSION_FORMAT_DEFAULT, buf, sizeof(buf), test_lznt[0].compressed,
+                                 test_lznt[0].compressed_size, &final_size);
     ok(status == STATUS_INVALID_PARAMETER, "got wrong status 0x%08x\n", status);
     ok(final_size == 0xdeadbeef, "got wrong final_size %u\n", final_size);
 
     final_size = 0xdeadbeef;
-    status = pRtlDecompressBuffer(0xFF, buf, sizeof(buf), test_lznt[0].compressed,
-                                  test_lznt[0].compressed_size, &final_size);
+    status = RtlDecompressBuffer(0xFF, buf, sizeof(buf), test_lznt[0].compressed,
+                                 test_lznt[0].compressed_size, &final_size);
     ok(status == STATUS_UNSUPPORTED_COMPRESSION, "got wrong status 0x%08x\n", status);
     ok(final_size == 0xdeadbeef, "got wrong final_size %u\n", final_size);
 
@@ -2892,8 +2784,8 @@ static void test_RtlDecompressBuffer(void)
         /* test with very big buffer */
         final_size = 0xdeadbeef;
         memset(buf, 0x11, sizeof(buf));
-        status = pRtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
-                                      test_lznt[i].compressed_size, &final_size);
+        status = RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
+                                     test_lznt[i].compressed_size, &final_size);
         ok(status == test_lznt[i].status || broken(status == STATUS_BAD_COMPRESSION_BUFFER &&
            (test_lznt[i].broken_flags & DECOMPRESS_BROKEN_FRAGMENT)), "%d: got wrong status 0x%08x\n", i, status);
         if (!status)
@@ -2909,8 +2801,8 @@ static void test_RtlDecompressBuffer(void)
         /* test that modifier for compression engine is ignored */
         final_size = 0xdeadbeef;
         memset(buf, 0x11, sizeof(buf));
-        status = pRtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1 | COMPRESSION_ENGINE_MAXIMUM, buf, sizeof(buf),
-                                      test_lznt[i].compressed, test_lznt[i].compressed_size, &final_size);
+        status = RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1 | COMPRESSION_ENGINE_MAXIMUM, buf, sizeof(buf),
+                                     test_lznt[i].compressed, test_lznt[i].compressed_size, &final_size);
         ok(status == test_lznt[i].status || broken(status == STATUS_BAD_COMPRESSION_BUFFER &&
            (test_lznt[i].broken_flags & DECOMPRESS_BROKEN_FRAGMENT)), "%d: got wrong status 0x%08x\n", i, status);
         if (!status)
@@ -2928,8 +2820,8 @@ static void test_RtlDecompressBuffer(void)
         {
             final_size = 0xdeadbeef;
             memset(buf, 0x11, sizeof(buf));
-            status = pRtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf, test_lznt[i].uncompressed_size,
-                                          test_lznt[i].compressed, test_lznt[i].compressed_size, &final_size);
+            status = RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf, test_lznt[i].uncompressed_size,
+                                         test_lznt[i].compressed, test_lznt[i].compressed_size, &final_size);
             ok(status == test_lznt[i].status, "%d: got wrong status 0x%08x\n", i, status);
             if (!status)
             {
@@ -2947,8 +2839,8 @@ static void test_RtlDecompressBuffer(void)
         {
             final_size = 0xdeadbeef;
             memset(buf, 0x11, sizeof(buf));
-            status = pRtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf, test_lznt[i].uncompressed_size - 1,
-                                          test_lznt[i].compressed, test_lznt[i].compressed_size, &final_size);
+            status = RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf, test_lznt[i].uncompressed_size - 1,
+                                         test_lznt[i].compressed, test_lznt[i].compressed_size, &final_size);
             if (test_lznt[i].broken_flags & DECOMPRESS_BROKEN_TRUNCATED)
                 todo_wine
                 ok(status == STATUS_BAD_COMPRESSION_BUFFER, "%d: got wrong status 0x%08x\n", i, status);
@@ -2968,8 +2860,8 @@ static void test_RtlDecompressBuffer(void)
         /* test with zero output size */
         final_size = 0xdeadbeef;
         memset(buf, 0x11, sizeof(buf));
-        status = pRtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf, 0, test_lznt[i].compressed,
-                                      test_lznt[i].compressed_size, &final_size);
+        status = RtlDecompressBuffer(COMPRESSION_FORMAT_LZNT1, buf, 0, test_lznt[i].compressed,
+                                     test_lznt[i].compressed_size, &final_size);
         if (is_incomplete_chunk(test_lznt[i].compressed, test_lznt[i].compressed_size, FALSE))
             ok(status == STATUS_BAD_COMPRESSION_BUFFER, "%d: got wrong status 0x%08x\n", i, status);
         else
@@ -2982,8 +2874,8 @@ static void test_RtlDecompressBuffer(void)
         /* test RtlDecompressFragment with offset = 0 */
         final_size = 0xdeadbeef;
         memset(buf, 0x11, sizeof(buf));
-        status = pRtlDecompressFragment(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
-                                        test_lznt[i].compressed_size, 0, &final_size, workspace);
+        status = RtlDecompressFragment(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
+                                       test_lznt[i].compressed_size, 0, &final_size, workspace);
         if (test_lznt[i].broken_flags & DECOMPRESS_BROKEN_FRAGMENT)
             todo_wine
             ok(status == STATUS_BAD_COMPRESSION_BUFFER, "%d: got wrong status 0x%08x\n", i, status);
@@ -3002,8 +2894,8 @@ static void test_RtlDecompressBuffer(void)
         /* test RtlDecompressFragment with offset = 1 */
         final_size = 0xdeadbeef;
         memset(buf, 0x11, sizeof(buf));
-        status = pRtlDecompressFragment(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
-                                        test_lznt[i].compressed_size, 1, &final_size, workspace);
+        status = RtlDecompressFragment(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
+                                       test_lznt[i].compressed_size, 1, &final_size, workspace);
         if (test_lznt[i].broken_flags & DECOMPRESS_BROKEN_FRAGMENT)
             todo_wine
             ok(status == STATUS_BAD_COMPRESSION_BUFFER, "%d: got wrong status 0x%08x\n", i, status);
@@ -3032,8 +2924,8 @@ static void test_RtlDecompressBuffer(void)
         /* test RtlDecompressFragment with offset = 4095 */
         final_size = 0xdeadbeef;
         memset(buf, 0x11, sizeof(buf));
-        status = pRtlDecompressFragment(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
-                                        test_lznt[i].compressed_size, 4095, &final_size, workspace);
+        status = RtlDecompressFragment(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
+                                       test_lznt[i].compressed_size, 4095, &final_size, workspace);
         if (test_lznt[i].broken_flags & DECOMPRESS_BROKEN_FRAGMENT)
             todo_wine
             ok(status == STATUS_BAD_COMPRESSION_BUFFER, "%d: got wrong status 0x%08x\n", i, status);
@@ -3051,8 +2943,8 @@ static void test_RtlDecompressBuffer(void)
         /* test RtlDecompressFragment with offset = 4096 */
         final_size = 0xdeadbeef;
         memset(buf, 0x11, sizeof(buf));
-        status = pRtlDecompressFragment(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
-                                        test_lznt[i].compressed_size, 4096, &final_size, workspace);
+        status = RtlDecompressFragment(COMPRESSION_FORMAT_LZNT1, buf, sizeof(buf), test_lznt[i].compressed,
+                                       test_lznt[i].compressed_size, 4096, &final_size, workspace);
         expected_status = is_incomplete_chunk(test_lznt[i].compressed, test_lznt[i].compressed_size, TRUE) ?
                           test_lznt[i].status : STATUS_SUCCESS;
         ok(status == expected_status, "%d: got wrong status 0x%08x, expected 0x%08x\n", i, status, expected_status);
@@ -3262,7 +3154,7 @@ struct ldr_enum_context
     int  count;
 };
 
-static void WINAPI ldr_enum_callback(LDR_MODULE *module, void *context, BOOLEAN *stop)
+static void WINAPI ldr_enum_callback(LDR_DATA_TABLE_ENTRY *module, void *context, BOOLEAN *stop)
 {
     static const WCHAR ntdllW[] = {'n','t','d','l','l','.','d','l','l',0};
     struct ldr_enum_context *ctx = context;
@@ -3317,41 +3209,35 @@ static void test_RtlMakeSelfRelativeSD(void)
     NTSTATUS status;
     DWORD len;
 
-    if (!pRtlMakeSelfRelativeSD || !pRtlAbsoluteToSelfRelativeSD)
-    {
-        win_skip( "RtlMakeSelfRelativeSD/RtlAbsoluteToSelfRelativeSD not available\n" );
-        return;
-    }
-
     memset( &sd, 0, sizeof(sd) );
     sd.Revision = SECURITY_DESCRIPTOR_REVISION;
 
     len = 0;
-    status = pRtlMakeSelfRelativeSD( &sd, NULL, &len );
+    status = RtlMakeSelfRelativeSD( &sd, NULL, &len );
     ok( status == STATUS_BUFFER_TOO_SMALL, "got %08x\n", status );
     ok( len == sizeof(*sd_rel), "got %u\n", len );
 
     len += 4;
-    status = pRtlMakeSelfRelativeSD( &sd, sd_rel, &len );
+    status = RtlMakeSelfRelativeSD( &sd, sd_rel, &len );
     ok( status == STATUS_SUCCESS, "got %08x\n", status );
     ok( len == sizeof(*sd_rel) + 4, "got %u\n", len );
 
     len = 0;
-    status = pRtlAbsoluteToSelfRelativeSD( &sd, NULL, &len );
+    status = RtlAbsoluteToSelfRelativeSD( &sd, NULL, &len );
     ok( status == STATUS_BUFFER_TOO_SMALL, "got %08x\n", status );
     ok( len == sizeof(*sd_rel), "got %u\n", len );
 
     len += 4;
-    status = pRtlAbsoluteToSelfRelativeSD( &sd, sd_rel, &len );
+    status = RtlAbsoluteToSelfRelativeSD( &sd, sd_rel, &len );
     ok( status == STATUS_SUCCESS, "got %08x\n", status );
     ok( len == sizeof(*sd_rel) + 4, "got %u\n", len );
 
     sd.Control = SE_SELF_RELATIVE;
-    status = pRtlMakeSelfRelativeSD( &sd, sd_rel, &len );
+    status = RtlMakeSelfRelativeSD( &sd, sd_rel, &len );
     ok( status == STATUS_SUCCESS, "got %08x\n", status );
     ok( len == sizeof(*sd_rel) + 4, "got %u\n", len );
 
-    status = pRtlAbsoluteToSelfRelativeSD( &sd, sd_rel, &len );
+    status = RtlAbsoluteToSelfRelativeSD( &sd, sd_rel, &len );
     ok( status == STATUS_BAD_DESCRIPTOR_FORMAT, "got %08x\n", status );
 }
 
@@ -3368,9 +3254,9 @@ static void CALLBACK ldr_notify_callback1(ULONG reason, LDR_DLL_NOTIFICATION_DAT
     const IMAGE_IMPORT_DESCRIPTOR *imports;
     const IMAGE_THUNK_DATA *import_list;
     IMAGE_THUNK_DATA *thunk_list;
+    LDR_DATA_TABLE_ENTRY *mod;
     DWORD *calls = context;
     LIST_ENTRY *mark;
-    LDR_MODULE *mod;
     ULONG size;
     int i, j;
 
@@ -3388,9 +3274,9 @@ static void CALLBACK ldr_notify_callback1(ULONG reason, LDR_DLL_NOTIFICATION_DAT
 
     /* expect module to be last module listed in LdrData load order list */
     mark = &NtCurrentTeb()->Peb->LdrData->InMemoryOrderModuleList;
-    mod = CONTAINING_RECORD(mark->Blink, LDR_MODULE, InMemoryOrderModuleList);
-    ok(mod->BaseAddress == data->Loaded.DllBase, "Expected base address %p, got %p\n",
-       data->Loaded.DllBase, mod->BaseAddress);
+    mod = CONTAINING_RECORD(mark->Blink, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+    ok(mod->DllBase == data->Loaded.DllBase, "Expected base address %p, got %p\n",
+       data->Loaded.DllBase, mod->DllBase);
     ok(!lstrcmpiW(mod->BaseDllName.Buffer, expected_dll), "Expected %s, got %s\n",
        wine_dbgstr_w(expected_dll), wine_dbgstr_w(mod->BaseDllName.Buffer));
 
@@ -3440,7 +3326,7 @@ static void CALLBACK ldr_notify_callback_dll_main(ULONG reason, LDR_DLL_NOTIFICA
 {
     DWORD *calls = context;
     LIST_ENTRY *mark;
-    LDR_MODULE *mod;
+    LDR_DATA_TABLE_ENTRY *mod;
 
     *calls <<= 4;
     *calls |= reason;
@@ -3449,10 +3335,10 @@ static void CALLBACK ldr_notify_callback_dll_main(ULONG reason, LDR_DLL_NOTIFICA
         return;
 
     mark = &NtCurrentTeb()->Peb->LdrData->InMemoryOrderModuleList;
-    mod = CONTAINING_RECORD(mark->Blink, LDR_MODULE, InMemoryOrderModuleList);
-    ok(mod->BaseAddress == data->Loaded.DllBase, "Expected base address %p, got %p\n",
-       data->Loaded.DllBase, mod->BaseAddress);
-    if (mod->BaseAddress != data->Loaded.DllBase)
+    mod = CONTAINING_RECORD(mark->Blink, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+    ok(mod->DllBase == data->Loaded.DllBase, "Expected base address %p, got %p\n",
+       data->Loaded.DllBase, mod->DllBase);
+    if (mod->DllBase != data->Loaded.DllBase)
        return;
 
     orig_entry = mod->EntryPoint;
@@ -3479,7 +3365,7 @@ static void CALLBACK ldr_notify_callback_fail(ULONG reason, LDR_DLL_NOTIFICATION
 {
     DWORD *calls = context;
     LIST_ENTRY *mark;
-    LDR_MODULE *mod;
+    LDR_DATA_TABLE_ENTRY *mod;
 
     *calls <<= 4;
     *calls |= reason;
@@ -3488,10 +3374,10 @@ static void CALLBACK ldr_notify_callback_fail(ULONG reason, LDR_DLL_NOTIFICATION
         return;
 
     mark = &NtCurrentTeb()->Peb->LdrData->InMemoryOrderModuleList;
-    mod = CONTAINING_RECORD(mark->Blink, LDR_MODULE, InMemoryOrderModuleList);
-    ok(mod->BaseAddress == data->Loaded.DllBase, "Expected base address %p, got %p\n",
-       data->Loaded.DllBase, mod->BaseAddress);
-    if (mod->BaseAddress != data->Loaded.DllBase)
+    mod = CONTAINING_RECORD(mark->Blink, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+    ok(mod->DllBase == data->Loaded.DllBase, "Expected base address %p, got %p\n",
+       data->Loaded.DllBase, mod->DllBase);
+    if (mod->DllBase != data->Loaded.DllBase)
        return;
 
     orig_entry = mod->EntryPoint;

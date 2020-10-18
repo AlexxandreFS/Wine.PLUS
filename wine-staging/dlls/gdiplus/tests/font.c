@@ -300,6 +300,56 @@ static void test_logfont(void)
     GdipDeleteFontFamily(family);
 
     GdipDeleteFont(font);
+    font = NULL;
+
+    /* The next test must be done with a font where tmHeight -
+       tmInternalLeading != tmAscent. Times New Roman is such a font,
+       so make sure we really have it before continuing. */
+    memset(&lfa, 0, sizeof(lfa));
+    lstrcpyA(lfa.lfFaceName, "Times New Roman");
+
+    stat = GdipCreateFontFromLogfontA(hdc, &lfa, &font);
+    expect(Ok, stat);
+
+    memset(&lfa2, 0, sizeof(lfa2));
+    stat = GdipGetLogFontA(font, graphics, &lfa2);
+    expect(Ok, stat);
+
+    GdipDeleteFont(font);
+    font = NULL;
+
+    if (!lstrlenA(lfa.lfFaceName) || lstrcmpA(lfa.lfFaceName, lfa2.lfFaceName))
+    {
+        skip("Times New Roman not installed\n");
+    }
+    else
+    {
+        static const struct
+        {
+            INT input;
+            REAL expected;
+        } test_sizes[] = {{12, 9.0}, {36, 32.0}, {48, 42.0}, {72, 63.0}, {144, 127.0}};
+
+        UINT i;
+
+        memset(&lfa, 0, sizeof(lfa));
+        lstrcpyA(lfa.lfFaceName, "Times New Roman");
+
+        for (i = 0; i < ARRAY_SIZE(test_sizes); ++i)
+        {
+            lfa.lfHeight = test_sizes[i].input;
+
+            stat = GdipCreateFontFromLogfontA(hdc, &lfa, &font);
+            expect(Ok, stat);
+
+            stat = GdipGetFontSize(font, &rval);
+            expect(Ok, stat);
+            expectf(test_sizes[i].expected, rval);
+
+            GdipDeleteFont(font);
+            font = NULL;
+        }
+    }
 
     GdipDeleteGraphics(graphics);
     ReleaseDC(0, hdc);
@@ -344,7 +394,6 @@ static void test_fontfamily (void)
     ZeroMemory (itsName, sizeof(itsName));
     stat = GdipCloneFontFamily(family, &clonedFontFamily);
     expect (Ok, stat);
-todo_wine
     ok (family == clonedFontFamily, "Unexpected family instance.\n");
     GdipDeleteFontFamily(family);
     stat = GdipGetFamilyName(clonedFontFamily, itsName, LANG_NEUTRAL);
@@ -809,48 +858,37 @@ static void test_font_metrics(void)
 
 static void test_font_substitution(void)
 {
-    WCHAR ms_shell_dlg[LF_FACESIZE];
     char fallback_font[LF_FACESIZE];
     HDC hdc;
-    HFONT hfont;
     LOGFONTA lf;
     GpStatus status;
     GpGraphics *graphics;
     GpFont *font;
     GpFontFamily *family;
-    int ret;
 
     hdc = CreateCompatibleDC(0);
     status = GdipCreateFromHDC(hdc, &graphics);
     expect(Ok, status);
 
-    hfont = GetStockObject(DEFAULT_GUI_FONT);
-    ok(hfont != 0, "GetStockObject(DEFAULT_GUI_FONT) failed\n");
-
-    memset(&lf, 0xfe, sizeof(lf));
-    ret = GetObjectA(hfont, sizeof(lf), &lf);
-    ok(ret == sizeof(lf), "GetObject failed\n");
-    ok(!lstrcmpA(lf.lfFaceName, "MS Shell Dlg"), "wrong face name %s\n", lf.lfFaceName);
-    MultiByteToWideChar(CP_ACP, 0, lf.lfFaceName, -1, ms_shell_dlg, LF_FACESIZE);
+    memset(&lf, 0, sizeof(lf));
+    lstrcpyA(lf.lfFaceName, "MS Shell Dlg");
 
     status = GdipCreateFontFromLogfontA(hdc, &lf, &font);
     expect(Ok, status);
     memset(&lf, 0xfe, sizeof(lf));
     status = GdipGetLogFontA(font, graphics, &lf);
     expect(Ok, status);
-    ok(!lstrcmpA(lf.lfFaceName, "Microsoft Sans Serif") ||
-       !lstrcmpA(lf.lfFaceName, "Tahoma"), "wrong face name %s\n", lf.lfFaceName);
+    ok(lstrcmpA(lf.lfFaceName, "MS Shell Dlg") != 0, "expected substitution of MS Shell Dlg\n");
     GdipDeleteFont(font);
 
-    status = GdipCreateFontFamilyFromName(ms_shell_dlg, NULL, &family);
+    status = GdipCreateFontFamilyFromName(L"MS Shell Dlg", NULL, &family);
     expect(Ok, status);
     status = GdipCreateFont(family, 12, FontStyleRegular, UnitPoint, &font);
     expect(Ok, status);
     memset(&lf, 0xfe, sizeof(lf));
     status = GdipGetLogFontA(font, graphics, &lf);
     expect(Ok, status);
-    ok(!lstrcmpA(lf.lfFaceName, "Microsoft Sans Serif") ||
-       !lstrcmpA(lf.lfFaceName, "Tahoma"), "wrong face name %s\n", lf.lfFaceName);
+    ok(lstrcmpA(lf.lfFaceName, "MS Shell Dlg") != 0, "expected substitution of MS Shell Dlg\n");
     GdipDeleteFont(font);
     GdipDeleteFontFamily(family);
 
@@ -1237,7 +1275,6 @@ static void test_GdipGetFontCollectionFamilyList(void)
     status = GdipGetFontCollectionFamilyList(collection, 1, &family2, &found);
     ok(status == Ok, "Failed to get family list, status %d.\n", status);
     ok(found == 1, "Unexpected list count %d.\n", found);
-todo_wine
     ok(family2 == family, "Unexpected family instance.\n");
 
     status = GdipDeleteFontFamily(family);
@@ -1281,17 +1318,63 @@ static void test_GdipGetFontCollectionFamilyCount(void)
     ok(status == InvalidParameter, "Unexpected status %d.\n", status);
 }
 
+static BOOL is_family_in_collection(GpFontCollection *collection, GpFontFamily *family)
+{
+    GpStatus status;
+    GpFontFamily **list;
+    int count, i;
+    BOOL found = FALSE;
+
+    status = GdipGetFontCollectionFamilyCount(collection, &count);
+    expect(Ok, status);
+
+    list = GdipAlloc(count * sizeof(GpFontFamily *));
+    status = GdipGetFontCollectionFamilyList(collection, count, list, &count);
+    expect(Ok, status);
+
+    for (i = 0; i < count; i++)
+    {
+        if (list[i] == family)
+        {
+            found = TRUE;
+            break;
+        }
+    }
+
+    GdipFree(list);
+
+    return found;
+}
+
 static void test_CloneFont(void)
 {
     GpStatus status;
+    GpFontCollection *collection, *collection2;
     GpFont *font, *font2;
     GpFontFamily *family, *family2;
     REAL height;
     Unit unit;
     int style;
+    BOOL ret;
+
+    status = GdipNewInstalledFontCollection(&collection);
+    expect(Ok, status);
+
+    status = GdipNewInstalledFontCollection(&collection2);
+    expect(Ok, status);
+    ok(collection == collection2, "got %p\n", collection2);
+
+    status = GdipCreateFontFamilyFromName(nonexistent, NULL, &family);
+    expect(FontFamilyNotFound, status);
+
+    status = GdipCreateFontFamilyFromName(nonexistent, collection, &family);
+    expect(FontFamilyNotFound, status);
 
     status = GdipCreateFontFamilyFromName(Tahoma, NULL, &family);
     expect(Ok, status);
+
+    ret = is_family_in_collection(collection, family);
+    ok(ret, "family is not in collection\n");
 
     status = GdipCreateFont(family, 30.0f, FontStyleRegular, UnitPixel, &font);
     expect(Ok, status);

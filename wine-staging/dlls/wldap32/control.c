@@ -34,7 +34,9 @@
 #include "wldap32.h"
 #include "wine/debug.h"
 
+#ifdef HAVE_LDAP
 WINE_DEFAULT_DEBUG_CHANNEL(wldap32);
+#endif
 
 /***********************************************************************
  *      ldap_control_freeA     (WLDAP32.@)
@@ -187,7 +189,7 @@ ULONG CDECL ldap_create_sort_controlW( WLDAP32_LDAP *ld, PLDAPSortKeyW *sortkey,
     sortkeyU = sortkeyarrayWtoU( sortkey );
     if (!sortkeyU) return WLDAP32_LDAP_NO_MEMORY;
 
-    ret = map_error( ldap_create_sort_control( ld, sortkeyU, critical, &controlU ));
+    ret = map_error( ldap_create_sort_control( ld->ld, sortkeyU, critical, &controlU ));
 
     *control = controlUtoW( controlU );
     if (!*control) ret = WLDAP32_LDAP_NO_MEMORY;
@@ -261,7 +263,7 @@ INT CDECL ldap_create_vlv_controlW( WLDAP32_LDAP *ld, WLDAP32_LDAPVLVInfo *info,
 
     if (!ld || !control) return ~0u;
 
-    ret = map_error( ldap_create_vlv_control( ld, (LDAPVLVInfo *)info, &controlU ));
+    ret = map_error( ldap_create_vlv_control( ld->ld, (LDAPVLVInfo *)info, &controlU ));
 
     if (ret == WLDAP32_LDAP_SUCCESS)
     {

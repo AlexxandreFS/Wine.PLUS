@@ -148,9 +148,11 @@ DC *alloc_dc_ptr( WORD magic )
     }
     dc->nulldrv.hdc = dc->hSelf;
 
-    if (font_driver)
-        font_driver->pCreateDC( &dc->physDev, NULL, NULL, NULL, NULL );
-
+    if (font_driver && !font_driver->pCreateDC( &dc->physDev, NULL, NULL, NULL, NULL ))
+    {
+        free_dc_ptr( dc );
+        return NULL;
+    }
     return dc;
 }
 
@@ -166,7 +168,6 @@ static void free_dc_state( DC *dc )
     if (dc->hVisRgn) DeleteObject( dc->hVisRgn );
     if (dc->region) DeleteObject( dc->region );
     if (dc->path) free_gdi_path( dc->path );
-    HeapFree( GetProcessHeap(), 0, dc->font_gamma_ramp );
     HeapFree( GetProcessHeap(), 0, dc );
 }
 

@@ -19,9 +19,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-#include "wine/port.h"
-
 #include <stdarg.h>
 #include <string.h>
 #include "ntstatus.h"
@@ -2397,7 +2394,10 @@ BOOL WINAPI SetWindowPos( HWND hwnd, HWND hwndInsertAfter,
     if (WIN_IsCurrentThread( hwnd ))
         return USER_SetWindowPos( &winpos, 0, 0 );
 
-    return SendMessageW( winpos.hwnd, WM_WINE_SETWINDOWPOS, 0, (LPARAM)&winpos );
+    if (flags & SWP_ASYNCWINDOWPOS)
+        return SendNotifyMessageW( winpos.hwnd, WM_WINE_SETWINDOWPOS, 0, (LPARAM)&winpos );
+    else
+        return SendMessageW( winpos.hwnd, WM_WINE_SETWINDOWPOS, 0, (LPARAM)&winpos );
 }
 
 
@@ -2901,7 +2901,7 @@ void WINPOS_SysCommandSizeMove( HWND hwnd, WPARAM wParam )
             else
             {
                 if (!DragFullWindows) draw_moving_frame( parent, hdc, &sizingRect, thickframe );
-                if (hittest == HTCAPTION) OffsetRect( &sizingRect, dx, dy );
+                if (hittest == HTCAPTION || hittest == HTBORDER) OffsetRect( &sizingRect, dx, dy );
                 if (ON_LEFT_BORDER(hittest)) sizingRect.left += dx;
                 else if (ON_RIGHT_BORDER(hittest)) sizingRect.right += dx;
                 if (ON_TOP_BORDER(hittest)) sizingRect.top += dy;
@@ -2909,7 +2909,7 @@ void WINPOS_SysCommandSizeMove( HWND hwnd, WPARAM wParam )
                 capturePoint = pt;
 
                 /* determine the hit location */
-                if (syscommand == SC_SIZE)
+                if (syscommand == SC_SIZE && hittest != HTBORDER)
                 {
                     WPARAM wpSizingHit = 0;
 

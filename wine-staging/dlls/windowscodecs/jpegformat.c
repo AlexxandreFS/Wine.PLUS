@@ -52,7 +52,6 @@
 
 #include "wine/heap.h"
 #include "wine/debug.h"
-#include "wine/library.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wincodecs);
 
@@ -86,10 +85,10 @@ MAKE_FUNCPTR(jpeg_write_scanlines);
 
 static void *load_libjpeg(void)
 {
-    if((libjpeg_handle = wine_dlopen(SONAME_LIBJPEG, RTLD_NOW, NULL, 0)) != NULL) {
+    if((libjpeg_handle = dlopen(SONAME_LIBJPEG, RTLD_NOW)) != NULL) {
 
 #define LOAD_FUNCPTR(f) \
-    if((p##f = wine_dlsym(libjpeg_handle, #f, NULL, 0)) == NULL) { \
+    if((p##f = dlsym(libjpeg_handle, #f)) == NULL) { \
         libjpeg_handle = NULL; \
         return NULL; \
     }
@@ -635,8 +634,9 @@ static HRESULT WINAPI JpegDecoder_Frame_GetResolution(IWICBitmapFrameDecode *ifa
 static HRESULT WINAPI JpegDecoder_Frame_CopyPalette(IWICBitmapFrameDecode *iface,
     IWICPalette *pIPalette)
 {
-    FIXME("(%p,%p): stub\n", iface, pIPalette);
-    return E_NOTIMPL;
+    TRACE("(%p,%p)\n", iface, pIPalette);
+
+    return WINCODEC_ERR_PALETTEUNAVAILABLE;
 }
 
 static HRESULT WINAPI JpegDecoder_Frame_CopyPixels(IWICBitmapFrameDecode *iface,
@@ -1180,7 +1180,8 @@ static HRESULT WINAPI JpegEncoder_Frame_WriteSource(IWICBitmapFrameEncode *iface
     if (SUCCEEDED(hr))
     {
         hr = write_source(iface, pIBitmapSource, prc,
-            This->format->guid, This->format->bpp, This->width, This->height);
+            This->format->guid, This->format->bpp, FALSE,
+            This->width, This->height);
     }
 
     return hr;

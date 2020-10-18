@@ -1630,6 +1630,9 @@ static HRESULT add_var_desc(msft_typeinfo_t *typeinfo, UINT index, var_t* var)
     unsigned char *namedata;
     int var_num = (typeinfo->typeinfo->cElement >> 16) & 0xffff;
 
+    if (!var->name)
+        var->name = gen_name();
+
     chat("add_var_desc(%d, %s)\n", index, var->name);
 
     id = 0x40000000 + index;
@@ -1743,11 +1746,12 @@ static HRESULT add_var_desc(msft_typeinfo_t *typeinfo, UINT index, var_t* var)
         typeinfo->datawidth += var_datawidth;
         break;
     case TKIND_UNION:
-        typedata[4] = typeinfo->datawidth;
+        typedata[4] = 0;
         typeinfo->datawidth = max(typeinfo->datawidth, var_datawidth);
         break;
     case TKIND_DISPATCH:
         var_kind = 3; /* VAR_DISPATCH */
+        typedata[4] = 0;
         typeinfo->datawidth = pointer_size;
         break;
     default:
@@ -2068,6 +2072,10 @@ static void add_dispinterface_typeinfo(msft_typelib_t *typelib, type_t *dispinte
             if(add_func_desc(msft_typeinfo, func, idx) == S_OK)
                 idx++;
     }
+
+        typelib->typelib->reg_ifaces = xrealloc(typelib->typelib->reg_ifaces,
+                (typelib->typelib->reg_iface_count + 1) * sizeof(dispinterface));
+    typelib->typelib->reg_ifaces[typelib->typelib->reg_iface_count++] = dispinterface;
 }
 
 static void add_interface_typeinfo(msft_typelib_t *typelib, type_t *interface)
@@ -2142,6 +2150,13 @@ static void add_interface_typeinfo(msft_typelib_t *typelib, type_t *interface)
         if(add_func_desc(msft_typeinfo, func, idx) == S_OK)
             idx++;
     }
+
+    if (is_attr(interface->attrs, ATTR_OLEAUTOMATION) || is_attr(interface->attrs, ATTR_DUAL))
+    {
+        typelib->typelib->reg_ifaces = xrealloc(typelib->typelib->reg_ifaces,
+                (typelib->typelib->reg_iface_count + 1) * sizeof(interface));
+        typelib->typelib->reg_ifaces[typelib->typelib->reg_iface_count++] = interface;
+    }
 }
 
 static void add_structure_typeinfo(msft_typelib_t *typelib, type_t *structure)
@@ -2196,6 +2211,9 @@ static void add_union_typeinfo(msft_typelib_t *typelib, type_t *tunion)
 
     if (-1 < tunion->typelib_idx)
         return;
+
+    if (!tunion->name)
+        tunion->name = gen_name();
 
     tunion->typelib_idx = typelib->typelib_header.nrtypeinfos;
     msft_typeinfo = create_msft_typeinfo(typelib, TKIND_UNION, tunion->name, tunion->attrs);
@@ -2542,7 +2560,8 @@ static void set_lib_flags(msft_typelib_t *typelib)
 
 static void ctl2_write_segment(msft_typelib_t *typelib, int segment)
 {
-    put_data(typelib->typelib_segment_data[segment], typelib->typelib_segdir[segment].length);
+    if (typelib->typelib_segment_data[segment])
+        put_data(typelib->typelib_segment_data[segment], typelib->typelib_segdir[segment].length);
 }
 
 static void ctl2_finalize_typeinfos(msft_typelib_t *typelib, int filesize)
@@ -2732,7 +2751,7 @@ int create_msft_typelib(typelib_t *typelib)
        and midl's version number */
     time_override = getenv( "WIDL_TIME_OVERRIDE");
     cur_time = time_override ? atol( time_override) : time(NULL);
-    sprintf(info_string, "Created by WIDL version %s at %s\n", PACKAGE_VERSION, ctime(&cur_time));
+    sprintf(info_string, "Created by WIDL version %s at %s", PACKAGE_VERSION, ctime(&cur_time));
     set_custdata(msft, &midl_info_guid, VT_BSTR, info_string, &msft->typelib_header.CustomDataOffset);
     set_custdata(msft, &midl_time_guid, VT_UI4, &cur_time, &msft->typelib_header.CustomDataOffset);
     set_custdata(msft, &midl_version_guid, VT_UI4, &version, &msft->typelib_header.CustomDataOffset);

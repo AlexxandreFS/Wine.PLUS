@@ -34,7 +34,9 @@
 #include "wldap32.h"
 #include "wine/debug.h"
 
+#ifdef HAVE_LDAP
 WINE_DEFAULT_DEBUG_CHANNEL(wldap32);
+#endif
 
 /***********************************************************************
  *      ldap_dn2ufnA     (WLDAP32.@)
@@ -212,7 +214,7 @@ PWCHAR CDECL ldap_get_dnW( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *entry )
 
     if (!ld || !entry) return NULL;
 
-    retU = ldap_get_dn( ld, entry );
+    retU = ldap_get_dn( ld->ld, entry );
 
     ret = strUtoW( retU );
     ldap_memfree( retU );

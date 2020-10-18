@@ -18,8 +18,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-
 #include <assert.h>
 #include <stdarg.h>
 #include <sys/types.h>
@@ -31,7 +29,36 @@
 #include "winerror.h"
 #include "winternl.h"
 
+#include "wine/asm.h"
 #include "kernel_private.h"
+
+
+#ifdef __i386__
+__ASM_STDCALL_FUNC( __fastcall_BaseThreadInitThunk, 12,
+                    "pushl %ebp\n\t"
+                    __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+                    __ASM_CFI(".cfi_rel_offset %ebp,0\n\t")
+                    "movl %esp,%ebp\n\t"
+                    __ASM_CFI(".cfi_def_cfa_register %ebp\n\t")
+                    "pushl %ebx\n\t"
+                    __ASM_CFI(".cfi_rel_offset %ebx,-4\n\t")
+                    "movl 8(%ebp),%ebx\n\t"
+                    /* deliberately mis-align the stack by 8, Doom 3 needs this */
+                    "pushl 4(%ebp)\n\t"  /* Driller expects readable address at this offset */
+                    "pushl 4(%ebp)\n\t"
+                    "pushl %ebx\n\t"
+                    "call *%edx\n\t"
+                    "movl %eax,(%esp)\n\t"
+                    "call " __ASM_STDCALL( "RtlExitUserThread", 4 ))
+#endif
+
+/***********************************************************************
+ *           BaseThreadInitThunk (KERNEL32.@)
+ */
+void __fastcall BaseThreadInitThunk( DWORD unknown, LPTHREAD_START_ROUTINE entry, void *arg )
+{
+    RtlExitUserThread( entry( arg ) );
+}
 
 
 /***********************************************************************
@@ -50,14 +77,12 @@ void WINAPI FreeLibraryAndExitThread(HINSTANCE hLibModule, DWORD dwExitCode)
 BOOL WINAPI Wow64SetThreadContext( HANDLE handle, const WOW64_CONTEXT *context)
 {
 #ifdef __i386__
-    NTSTATUS status = NtSetContextThread( handle, (const CONTEXT *)context );
+    return set_ntstatus( NtSetContextThread( handle, (const CONTEXT *)context ));
 #elif defined(__x86_64__)
-    NTSTATUS status = RtlWow64SetThreadContext( handle, context );
+    return set_ntstatus( RtlWow64SetThreadContext( handle, context ));
 #else
-    NTSTATUS status = STATUS_NOT_IMPLEMENTED;
+    return set_ntstatus( STATUS_NOT_IMPLEMENTED );
 #endif
-    if (status) SetLastError( RtlNtStatusToDosError(status) );
-    return !status;
 }
 
 /***********************************************************************
@@ -66,40 +91,26 @@ BOOL WINAPI Wow64SetThreadContext( HANDLE handle, const WOW64_CONTEXT *context)
 BOOL WINAPI Wow64GetThreadContext( HANDLE handle, WOW64_CONTEXT *context)
 {
 #ifdef __i386__
-    NTSTATUS status = NtGetContextThread( handle, (CONTEXT *)context );
+    return set_ntstatus( NtGetContextThread( handle, (CONTEXT *)context ));
 #elif defined(__x86_64__)
-    NTSTATUS status = RtlWow64GetThreadContext( handle, context );
+    return set_ntstatus( RtlWow64GetThreadContext( handle, context ));
 #else
-    NTSTATUS status = STATUS_NOT_IMPLEMENTED;
+    return set_ntstatus( STATUS_NOT_IMPLEMENTED );
 #endif
-    if (status) SetLastError( RtlNtStatusToDosError(status) );
-    return !status;
 }
 
 
 /**********************************************************************
  *           SetThreadAffinityMask   (KERNEL32.@)
  */
-DWORD_PTR WINAPI SetThreadAffinityMask( HANDLE hThread, DWORD_PTR dwThreadAffinityMask )
+DWORD_PTR WINAPI SetThreadAffinityMask( HANDLE thread, DWORD_PTR mask )
 {
-    NTSTATUS                    status;
-    THREAD_BASIC_INFORMATION    tbi;
+    THREAD_BASIC_INFORMATION tbi;
 
-    status = NtQueryInformationThread( hThread, ThreadBasicInformation, 
-                                       &tbi, sizeof(tbi), NULL );
-    if (status)
-    {
-        SetLastError( RtlNtStatusToDosError(status) );
+    if (!set_ntstatus( NtQueryInformationThread( thread, ThreadBasicInformation, &tbi, sizeof(tbi), NULL )))
         return 0;
-    }
-    status = NtSetInformationThread( hThread, ThreadAffinityMask, 
-                                     &dwThreadAffinityMask,
-                                     sizeof(dwThreadAffinityMask));
-    if (status)
-    {
-        SetLastError( RtlNtStatusToDosError(status) );
+    if (!set_ntstatus( NtSetInformationThread( thread, ThreadAffinityMask, &mask, sizeof(mask))))
         return 0;
-    }
     return tbi.AffinityMask;
 }
 
@@ -107,18 +118,14 @@ DWORD_PTR WINAPI SetThreadAffinityMask( HANDLE hThread, DWORD_PTR dwThreadAffini
 /***********************************************************************
  *           GetThreadSelectorEntry   (KERNEL32.@)
  */
-BOOL WINAPI GetThreadSelectorEntry( HANDLE hthread, DWORD sel, LPLDT_ENTRY ldtent )
+BOOL WINAPI GetThreadSelectorEntry( HANDLE thread, DWORD sel, LDT_ENTRY *ldtent )
 {
     THREAD_DESCRIPTOR_INFORMATION tdi;
-    NTSTATUS status;
 
     tdi.Selector = sel;
-    status = NtQueryInformationThread( hthread, ThreadDescriptorTableEntry, &tdi, sizeof(tdi), NULL);
-    if (status)
-    {
-        SetLastError( RtlNtStatusToDosError(status) );
+    if (!set_ntstatus( NtQueryInformationThread( thread, ThreadDescriptorTableEntry,
+                                                 &tdi, sizeof(tdi), NULL )))
         return FALSE;
-    }
     *ldtent = tdi.Entry;
     return TRUE;
 }

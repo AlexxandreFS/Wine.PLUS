@@ -86,11 +86,8 @@ static void test_D3DKMTOpenAdapterFromGdiDisplayName(void)
         }
 
         ok(open_adapter_gdi_desc.hAdapter, "Expect not null.\n");
-        if (display_device.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE)
-            ok(open_adapter_gdi_desc.VidPnSourceId == 0, "Got unexpected value %#x.\n",
-               open_adapter_gdi_desc.VidPnSourceId);
-        else
-            ok(open_adapter_gdi_desc.VidPnSourceId, "Got unexpected value %#x.\n", open_adapter_gdi_desc.VidPnSourceId);
+        ok(open_adapter_gdi_desc.AdapterLuid.LowPart || open_adapter_gdi_desc.AdapterLuid.HighPart,
+           "Expect LUID not zero.\n");
 
         close_adapter_desc.hAdapter = open_adapter_gdi_desc.hAdapter;
         status = pD3DKMTCloseAdapter(&close_adapter_desc);
@@ -110,7 +107,7 @@ static void test_D3DKMTOpenAdapterFromHdc(void)
 
     if (!pD3DKMTOpenAdapterFromHdc || pD3DKMTOpenAdapterFromHdc(NULL) == STATUS_PROCEDURE_NOT_FOUND)
     {
-        skip("D3DKMTOpenAdapterFromHdc() is unavailable.\n");
+        win_skip("D3DKMTOpenAdapterFromHdc() is unavailable.\n");
         return;
     }
 
@@ -135,12 +132,6 @@ static void test_D3DKMTOpenAdapterFromHdc(void)
         status = pD3DKMTOpenAdapterFromHdc(&open_adapter_hdc_desc);
         todo_wine ok(status == STATUS_SUCCESS, "Got unexpected return code %#x.\n", status);
         todo_wine ok(open_adapter_hdc_desc.hAdapter, "Expect not null.\n");
-        if (display_device.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE)
-            ok(open_adapter_hdc_desc.VidPnSourceId == 0, "Got unexpected value %#x.\n",
-               open_adapter_hdc_desc.VidPnSourceId);
-        else
-            todo_wine ok(open_adapter_hdc_desc.VidPnSourceId, "Got unexpected value %#x.\n",
-                         open_adapter_hdc_desc.VidPnSourceId);
         DeleteDC(hdc);
 
         if (status == STATUS_SUCCESS)
@@ -376,7 +367,7 @@ static void test_D3DKMTCheckVidPnExclusiveOwnership(void)
 
     if (!pD3DKMTCheckVidPnExclusiveOwnership || pD3DKMTCheckVidPnExclusiveOwnership(NULL) == STATUS_PROCEDURE_NOT_FOUND)
     {
-        win_skip("D3DKMTCheckVidPnExclusiveOwnership() is unavailable.\n");
+        skip("D3DKMTCheckVidPnExclusiveOwnership() is unavailable.\n");
         return;
     }
 
@@ -600,7 +591,7 @@ static void test_D3DKMTSetVidPnSourceOwner(void)
 
     if (!pD3DKMTSetVidPnSourceOwner || pD3DKMTSetVidPnSourceOwner(&set_owner_desc) == STATUS_PROCEDURE_NOT_FOUND)
     {
-        win_skip("D3DKMTSetVidPnSourceOwner() is unavailable.\n");
+        skip("D3DKMTSetVidPnSourceOwner() is unavailable.\n");
         return;
     }
 

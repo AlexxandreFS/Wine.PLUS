@@ -125,10 +125,29 @@ HRESULT configure_write_source(IWICBitmapFrameEncode *iface,
     const WICPixelFormatGUID *format,
     INT width, INT height, double xres, double yres)
 {
+    UINT src_width, src_height;
     HRESULT hr = S_OK;
 
-    if (width == 0 || height == 0)
-        return WINCODEC_ERR_WRONGSTATE;
+    if (width == 0 && height == 0)
+    {
+        if (prc)
+        {
+            if (prc->Width <= 0 || prc->Height <= 0) return E_INVALIDARG;
+            width = prc->Width;
+            height = prc->Height;
+        }
+        else
+        {
+            hr = IWICBitmapSource_GetSize(source, &src_width, &src_height);
+            if (FAILED(hr)) return hr;
+            if (src_width == 0 || src_height == 0) return E_INVALIDARG;
+            width = src_width;
+            height = src_height;
+        }
+        hr = IWICBitmapFrameEncode_SetSize(iface, (UINT)width, (UINT)height);
+        if (FAILED(hr)) return hr;
+    }
+    if (width == 0 || height == 0) return E_INVALIDARG;
 
     if (!format)
     {
@@ -154,7 +173,7 @@ HRESULT configure_write_source(IWICBitmapFrameEncode *iface,
 
 HRESULT write_source(IWICBitmapFrameEncode *iface,
     IWICBitmapSource *source, const WICRect *prc,
-    const WICPixelFormatGUID *format, UINT bpp,
+    const WICPixelFormatGUID *format, UINT bpp, BOOL need_palette,
     INT width, INT height)
 {
     IWICBitmapSource *converted_source;
@@ -183,6 +202,28 @@ HRESULT write_source(IWICBitmapFrameEncode *iface,
     {
         ERR("Failed to convert source, target format %s, %#x\n", debugstr_guid(format), hr);
         return E_NOTIMPL;
+    }
+
+    if (need_palette)
+    {
+        IWICPalette *palette;
+
+        hr = PaletteImpl_Create(&palette);
+        if (SUCCEEDED(hr))
+        {
+            hr = IWICBitmapSource_CopyPalette(converted_source, palette);
+
+            if (SUCCEEDED(hr))
+                hr = IWICBitmapFrameEncode_SetPalette(iface, palette);
+
+            IWICPalette_Release(palette);
+        }
+
+        if (FAILED(hr))
+        {
+            IWICBitmapSource_Release(converted_source);
+            return hr;
+        }
     }
 
     stride = (bpp * width + 7)/8;

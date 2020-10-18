@@ -434,16 +434,21 @@ static void basic_test(void)
     DestroyWindow(hToolbar);
 }
 
-static void rebuild_toolbar(HWND *hToolbar)
+static void rebuild_toolbar_ex(HWND *hToolbar, DWORD exstyle)
 {
     if (*hToolbar)
         DestroyWindow(*hToolbar);
-    *hToolbar = CreateWindowExA(0, TOOLBARCLASSNAMEA, NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
-        hMainWnd, (HMENU)5, GetModuleHandleA(NULL), NULL);
+    *hToolbar = CreateWindowExA(exstyle, TOOLBARCLASSNAMEA, NULL, WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, hMainWnd, (HMENU)5, GetModuleHandleA(NULL), NULL);
     ok(*hToolbar != NULL, "Toolbar creation problem\n");
     ok(SendMessageA(*hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0) == 0, "TB_BUTTONSTRUCTSIZE failed\n");
     ok(SendMessageA(*hToolbar, TB_AUTOSIZE, 0, 0) == 0, "TB_AUTOSIZE failed\n");
     ok(SendMessageA(*hToolbar, WM_SETFONT, (WPARAM)GetStockObject(SYSTEM_FONT), 0)==1, "WM_SETFONT\n");
+}
+
+static void rebuild_toolbar(HWND *hToolbar)
+{
+    rebuild_toolbar_ex(hToolbar, 0);
 }
 
 static void rebuild_toolbar_with_buttons(HWND *hToolbar)
@@ -1022,7 +1027,7 @@ static void tbsize_addbutton(tbsize_result_t *tbsr, int left, int top, int right
 
 static tbsize_result_t *tbsize_results;
 
-#define tbsize_results_num 28
+#define tbsize_results_num 29
 
 static void init_tbsize_results(void) {
     int fontheight = system_font_height();
@@ -1277,6 +1282,9 @@ static void init_tbsize_results(void) {
 
     tbsize_results[27] = init_tbsize_result(1, 0, 0, 672, 42, 67, 40);
     tbsize_addbutton(&tbsize_results[27],   0,   2,  40,  24);
+
+    tbsize_results[28] = init_tbsize_result(1, 0, 0, 672, 42, 67, 40);
+    tbsize_addbutton(&tbsize_results[28],   0,   2,  23,  24);
 }
 
 static void free_tbsize_results(void) {
@@ -1360,6 +1368,7 @@ static void test_sizes(void)
     int style;
     int i;
     int fontheight = system_font_height();
+    RECT rect;
 
     init_tbsize_results();
 
@@ -1630,6 +1639,20 @@ static void test_sizes(void)
     ok(SendMessageA(hToolbar, TB_SETBUTTONSIZE, 0, MAKELPARAM(40, 20)) == 1, "TB_SETBUTTONSIZE failed\n");
     SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0 );
     check_sizes();
+
+    /* Toolbar with borders around client area */
+    rebuild_toolbar_ex(&hToolbar, WS_EX_DLGMODALFRAME);
+    SetWindowLongA(hToolbar, GWL_STYLE, CCS_NODIVIDER | GetWindowLongA(hToolbar, GWL_STYLE));
+    SendMessageA(hToolbar, TB_ADDBUTTONSA, 1, (LPARAM)buttons1);
+    check_sizes();
+    GetClientRect(hToolbar, &rect);
+    ok(rect.top == 0, "rect.top = %d\n", rect.top);
+    ok(rect.bottom == 26, "rect.bottom = %d\n", rect.bottom);
+
+    rebuild_toolbar_ex(&hToolbar, WS_EX_DLGMODALFRAME);
+    GetClientRect(hToolbar, &rect);
+    ok(rect.top == 0, "rect.top = %d\n", rect.top);
+    ok(rect.bottom == 26, "rect.bottom = %d\n", rect.bottom);
 
     free_tbsize_results();
     DestroyWindow(hToolbar);
@@ -1969,8 +1992,6 @@ static void test_getstring(void)
     HWND hToolbar = NULL;
     char str[10];
     WCHAR strW[10];
-    static const char answer[] = "STR";
-    static const WCHAR answerW[] = { 'S','T','R',0 };
     INT r;
 
     hToolbar = CreateWindowExA(0, TOOLBARCLASSNAMEA, NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hMainWnd, (HMENU)5, GetModuleHandleA(NULL), NULL);
@@ -1986,18 +2007,17 @@ static void test_getstring(void)
     expect(-1, r);
     r = SendMessageW(hToolbar, TB_GETSTRINGW, MAKEWPARAM(0, 0), 0);
     expect(-1, r);
-    r = SendMessageA(hToolbar, TB_ADDSTRINGA, 0, (LPARAM)answer);
+    r = SendMessageA(hToolbar, TB_ADDSTRINGA, 0, (LPARAM)"STR");
     expect(0, r);
     r = SendMessageA(hToolbar, TB_GETSTRINGA, MAKEWPARAM(0, 0), 0);
-    expect(lstrlenA(answer), r);
+    ok(r == 3, "Unexpected return value %d.\n", r);
     r = SendMessageW(hToolbar, TB_GETSTRINGW, MAKEWPARAM(0, 0), 0);
-    expect(lstrlenA(answer), r);
+    ok(r == 3, "Unexpected return value %d.\n", r);
     r = SendMessageA(hToolbar, TB_GETSTRINGA, MAKEWPARAM(sizeof(str), 0), (LPARAM)str);
-    expect(lstrlenA(answer), r);
-    expect(0, lstrcmpA(answer, str));
+    ok(r == 3, "Unexpected return value %d.\n", r);
     r = SendMessageW(hToolbar, TB_GETSTRINGW, MAKEWPARAM(sizeof(strW), 0), (LPARAM)strW);
-    expect(lstrlenA(answer), r);
-    expect(0, lstrcmpW(answerW, strW));
+    ok(r == 3, "Unexpected return value %d.\n", r);
+    ok(!lstrcmpW(L"STR", strW), "Unexpected string %s.\n", wine_dbgstr_w(strW));
 
     DestroyWindow(hToolbar);
 }
@@ -2364,9 +2384,6 @@ static void test_save(void)
 {
     HWND wnd = NULL;
     TBSAVEPARAMSW params;
-    static const WCHAR subkey[] = {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\',
-                                   'W','i','n','e','T','e','s','t',0};
-    static const WCHAR value[] = {'t','o','o','l','b','a','r','t','e','s','t',0};
     LONG res;
     HKEY key;
     BYTE data[100];
@@ -2397,8 +2414,8 @@ static void test_save(void)
     };
 
     params.hkr = HKEY_CURRENT_USER;
-    params.pszSubKey = subkey;
-    params.pszValueName = value;
+    params.pszSubKey = L"Software\\Wine\\WineTest";
+    params.pszValueName = L"toolbartest";
 
     rebuild_toolbar_with_buttons( &wnd );
     SendMessageW(wnd, TB_ADDBUTTONSW, ARRAY_SIZE(more_btns), (LPARAM)more_btns);
@@ -2409,9 +2426,9 @@ static void test_save(void)
     ok_sequence(sequences, PARENT_SEQ_INDEX, save_parent_seq, "save", FALSE);
     DestroyWindow( wnd );
 
-    res = RegOpenKeyW( HKEY_CURRENT_USER, subkey, &key );
+    res = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineTest", &key );
     ok( !res, "got %08x\n", res );
-    res = RegQueryValueExW( key, value, NULL, &type, data, &size );
+    res = RegQueryValueExW( key, L"toolbartest", NULL, &type, data, &size );
     ok( !res, "got %08x\n", res );
     ok( type == REG_BINARY, "got %08x\n", type );
     ok( size == sizeof(expect), "got %08x\n", size );
@@ -2451,8 +2468,8 @@ static void test_save(void)
     }
 
     DestroyWindow( wnd );
-    RegOpenKeyW( HKEY_CURRENT_USER, subkey, &key );
-    RegDeleteValueW( key, value );
+    RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineTest", &key );
+    RegDeleteValueW( key, L"toolbartest" );
     RegCloseKey( key );
 }
 

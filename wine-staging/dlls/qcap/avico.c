@@ -16,20 +16,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
-
-#define COBJMACROS
-
-#include "windef.h"
-#include "winbase.h"
-#include "dshow.h"
+#include "qcap_private.h"
 #include "vfw.h"
 #include "aviriff.h"
-
-#include "qcap_main.h"
-
-#include "wine/debug.h"
-#include "wine/heap.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(qcap);
 
@@ -480,25 +469,22 @@ static const struct strmbase_source_ops source_ops =
     .pfnDecideAllocator = AVICompressorOut_DecideAllocator,
 };
 
-IUnknown* WINAPI QCAP_createAVICompressor(IUnknown *outer, HRESULT *phr)
+HRESULT avi_compressor_create(IUnknown *outer, IUnknown **out)
 {
     static const WCHAR source_name[] = {'O','u','t',0};
     static const WCHAR sink_name[] = {'I','n',0};
-    AVICompressor *compressor;
+    AVICompressor *object;
 
-    compressor = heap_alloc_zero(sizeof(*compressor));
-    if(!compressor) {
-        *phr = E_NOINTERFACE;
-        return NULL;
-    }
+    if (!(object = heap_alloc_zero(sizeof(*object))))
+        return E_OUTOFMEMORY;
 
-    strmbase_filter_init(&compressor->filter, outer, &CLSID_AVICo, &filter_ops);
+    strmbase_filter_init(&object->filter, outer, &CLSID_AVICo, &filter_ops);
+    object->IPersistPropertyBag_iface.lpVtbl = &PersistPropertyBagVtbl;
 
-    compressor->IPersistPropertyBag_iface.lpVtbl = &PersistPropertyBagVtbl;
+    strmbase_sink_init(&object->sink, &object->filter, sink_name, &sink_ops, NULL);
+    strmbase_source_init(&object->source, &object->filter, source_name, &source_ops);
 
-    strmbase_sink_init(&compressor->sink, &compressor->filter, sink_name, &sink_ops, NULL);
-    strmbase_source_init(&compressor->source, &compressor->filter, source_name, &source_ops);
-
-    *phr = S_OK;
-    return &compressor->filter.IUnknown_inner;
+    TRACE("Created AVI compressor %p.\n", object);
+    *out = &object->filter.IUnknown_inner;
+    return S_OK;
 }

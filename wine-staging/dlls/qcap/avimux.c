@@ -16,21 +16,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
-#include <stdio.h>
-
-#define COBJMACROS
-
-#include "windef.h"
-#include "winbase.h"
-#include "wtypes.h"
-#include "dshow.h"
+#include "qcap_private.h"
 #include "vfw.h"
 #include "aviriff.h"
-
-#include "qcap_main.h"
-
-#include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(qcap);
 
@@ -772,8 +760,7 @@ static HRESULT WINAPI ConfigInterleaving_put_Mode(
 
     if(This->mode != mode) {
         if(This->source.pin.peer) {
-            HRESULT hr = IFilterGraph_Reconnect(This->filter.filterInfo.pGraph,
-                    &This->source.pin.IPin_iface);
+            HRESULT hr = IFilterGraph_Reconnect(This->filter.graph, &This->source.pin.IPin_iface);
             if(FAILED(hr))
                 return hr;
         }
@@ -1152,7 +1139,7 @@ static HRESULT WINAPI AviMuxOut_AttemptConnection(struct strmbase_source *iface,
         if (!filter->in[i]->pin.pin.peer)
             continue;
 
-        hr = IFilterGraph_Reconnect(filter->filter.filterInfo.pGraph, &filter->in[i]->pin.pin.IPin_iface);
+        hr = IFilterGraph_Reconnect(filter->filter.graph, &filter->in[i]->pin.pin.IPin_iface);
         if (FAILED(hr))
         {
             IPin_Disconnect(&iface->pin.IPin_iface);
@@ -1270,7 +1257,7 @@ static const IQualityControlVtbl AviMuxOut_QualityControlVtbl = {
 
 static inline AviMuxIn *impl_sink_from_strmbase_pin(struct strmbase_pin *iface)
 {
-    return CONTAINING_RECORD(iface, AviMuxIn, pin.pin.IPin_iface);
+    return CONTAINING_RECORD(iface, AviMuxIn, pin.pin);
 }
 
 static HRESULT sink_query_interface(struct strmbase_pin *iface, REFIID iid, void **out)
@@ -1836,7 +1823,7 @@ static HRESULT create_input_pin(AviMux *avimux)
     return S_OK;
 }
 
-IUnknown * WINAPI QCAP_createAVIMux(IUnknown *outer, HRESULT *phr)
+HRESULT avi_mux_create(IUnknown *outer, IUnknown **out)
 {
     static const WCHAR output_name[] = {'A','V','I',' ','O','u','t',0};
 
@@ -1844,11 +1831,8 @@ IUnknown * WINAPI QCAP_createAVIMux(IUnknown *outer, HRESULT *phr)
     PIN_INFO info;
     HRESULT hr;
 
-    avimux = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(AviMux));
-    if(!avimux) {
-        *phr = E_OUTOFMEMORY;
-        return NULL;
-    }
+    if (!(avimux = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(AviMux))))
+        return E_OUTOFMEMORY;
 
     strmbase_filter_init(&avimux->filter, outer, &CLSID_AviDest, &filter_ops);
     avimux->IConfigAviMux_iface.lpVtbl = &ConfigAviMuxVtbl;
@@ -1871,13 +1855,13 @@ IUnknown * WINAPI QCAP_createAVIMux(IUnknown *outer, HRESULT *phr)
         strmbase_source_cleanup(&avimux->source);
         strmbase_filter_cleanup(&avimux->filter);
         HeapFree(GetProcessHeap(), 0, avimux);
-        *phr = hr;
-        return NULL;
+        return hr;
     }
 
     avimux->interleave = 10000000;
 
+    TRACE("Created AVI mux %p.\n", avimux);
     ObjectRefCount(TRUE);
-    *phr = S_OK;
-    return &avimux->filter.IUnknown_inner;
+    *out = &avimux->filter.IUnknown_inner;
+    return S_OK;
 }

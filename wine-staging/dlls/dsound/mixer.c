@@ -33,7 +33,6 @@
 #include "mmsystem.h"
 #include "wingdi.h"
 #include "mmreg.h"
-#include "winternl.h"
 #include "wine/debug.h"
 #include "dsound.h"
 #include "ks.h"
@@ -682,7 +681,7 @@ static void DSOUND_MixToPrimary(const DirectSoundDevice *device, float *mix_buff
 
 		if (dsb->buflen && dsb->state) {
 			TRACE("Checking %p, frames=%d\n", dsb, frames);
-			RtlAcquireResourceShared(&dsb->lock, TRUE);
+			AcquireSRWLockShared(&dsb->lock);
 			/* if buffer is stopping it is stopped now */
 			if (dsb->state == STATE_STOPPING) {
 				dsb->state = STATE_STOPPED;
@@ -698,7 +697,7 @@ static void DSOUND_MixToPrimary(const DirectSoundDevice *device, float *mix_buff
 
 				*all_stopped = FALSE;
 			}
-			RtlReleaseResource(&dsb->lock);
+			ReleaseSRWLockShared(&dsb->lock);
 		}
 	}
 }

@@ -152,7 +152,8 @@ static WNDPROC16 alloc_win16_thunk( WNDPROC handle )
     {
         assert( MAX_WINPROCS16 * sizeof(WINPROC_THUNK) <= 0x10000 );
 
-        if (!(thunk_selector = GlobalAlloc16( GMEM_FIXED, MAX_WINPROCS16 * sizeof(WINPROC_THUNK) )))
+        if (!(thunk_selector = GlobalAlloc16( GMEM_FIXED | GMEM_ZEROINIT,
+                                              MAX_WINPROCS16 * sizeof(WINPROC_THUNK) )))
             return NULL;
         PrestoChangoSelector16( thunk_selector, thunk_selector );
         thunk_array = GlobalLock16( thunk_selector );
@@ -239,11 +240,11 @@ static LRESULT call_window_proc16( HWND16 hwnd, UINT16 msg, WPARAM16 wParam, LPA
     /* Window procedures want ax = hInstance, ds = es = ss */
 
     memset(&context, 0, sizeof(context));
-    context.SegDs = context.SegEs = SELECTOROF(NtCurrentTeb()->SystemReserved1[0]);
+    context.SegDs = context.SegEs = SELECTOROF(NtCurrentTeb()->WOW32Reserved);
     if (!(context.Eax = GetWindowWord( HWND_32(hwnd), GWLP_HINSTANCE ))) context.Eax = context.SegDs;
     context.SegCs = SELECTOROF(func);
     context.Eip   = OFFSETOF(func);
-    context.Ebp   = OFFSETOF(NtCurrentTeb()->SystemReserved1[0]) + FIELD_OFFSET(STACK16FRAME, bp);
+    context.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + FIELD_OFFSET(STACK16FRAME, bp);
 
     if (lParam)
     {
@@ -266,7 +267,7 @@ static LRESULT call_window_proc16( HWND16 hwnd, UINT16 msg, WPARAM16 wParam, LPA
         if (size)
         {
             memcpy( &args.u, MapSL(lParam), size );
-            lParam = PtrToUlong(NtCurrentTeb()->SystemReserved1[0]) - size;
+            lParam = PtrToUlong(NtCurrentTeb()->WOW32Reserved) - size;
         }
     }
 
@@ -2091,7 +2092,7 @@ static LRESULT combo_proc16( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, 
 
 static void edit_lock_buffer( HWND hwnd )
 {
-    STACK16FRAME* stack16 = MapSL(PtrToUlong(NtCurrentTeb()->SystemReserved1[0]));
+    STACK16FRAME* stack16 = MapSL(PtrToUlong(NtCurrentTeb()->WOW32Reserved));
     HLOCAL16 hloc16 = GetWindowWord( hwnd, GWW_HANDLE16 );
     HANDLE16 oldDS;
     HLOCAL hloc32;
@@ -2117,7 +2118,7 @@ static void edit_lock_buffer( HWND hwnd )
 
 static void edit_unlock_buffer( HWND hwnd )
 {
-    STACK16FRAME* stack16 = MapSL(PtrToUlong(NtCurrentTeb()->SystemReserved1[0]));
+    STACK16FRAME* stack16 = MapSL(PtrToUlong(NtCurrentTeb()->WOW32Reserved));
     HLOCAL16 hloc16 = GetWindowWord( hwnd, GWW_HANDLE16 );
     HANDLE16 oldDS;
     HLOCAL hloc32;
@@ -2154,7 +2155,7 @@ static HLOCAL16 edit_get_handle( HWND hwnd )
     if (!(hloc = (HLOCAL)wow_handlers32.edit_proc( hwnd, EM_GETHANDLE, 0, 0, FALSE ))) return 0;
     alloc_size = LocalSize( hloc );
 
-    stack16 = MapSL(PtrToUlong(NtCurrentTeb()->SystemReserved1[0]));
+    stack16 = MapSL(PtrToUlong(NtCurrentTeb()->WOW32Reserved));
     oldDS = stack16->ds;
     stack16->ds = GetWindowLongPtrW( hwnd, GWLP_HINSTANCE );
 
@@ -2192,7 +2193,7 @@ done:
 
 static void edit_set_handle( HWND hwnd, HLOCAL16 hloc16 )
 {
-    STACK16FRAME* stack16 = MapSL(PtrToUlong(NtCurrentTeb()->SystemReserved1[0]));
+    STACK16FRAME* stack16 = MapSL(PtrToUlong(NtCurrentTeb()->WOW32Reserved));
     HINSTANCE16 hInstance = GetWindowLongPtrW( hwnd, GWLP_HINSTANCE );
     HANDLE16 oldDS = stack16->ds;
     HLOCAL hloc32;
@@ -2222,7 +2223,7 @@ static void edit_destroy_handle( HWND hwnd )
     HLOCAL16 hloc16 = GetWindowWord( hwnd, GWW_HANDLE16 );
     if (hloc16)
     {
-        STACK16FRAME* stack16 = MapSL(PtrToUlong(NtCurrentTeb()->SystemReserved1[0]));
+        STACK16FRAME* stack16 = MapSL(PtrToUlong(NtCurrentTeb()->WOW32Reserved));
         HANDLE16 oldDS = stack16->ds;
 
         stack16->ds = GetWindowLongPtrW( hwnd, GWLP_HINSTANCE );

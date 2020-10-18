@@ -205,6 +205,7 @@
 @ stdcall EmptyClipboard()
 @ stdcall EnableMenuItem(long long long)
 @ stdcall EnableMouseInPointer(long)
+@ stdcall EnableNonClientDpiScaling(long)
 @ stdcall EnableScrollBar(long long long)
 @ stdcall EnableWindow(long long)
 @ stdcall EndDeferWindowPos(long)
@@ -717,7 +718,7 @@
 @ stdcall SetWindowCompositionAttribute(ptr ptr)
 @ stdcall SetWindowContextHelpId(long long)
 @ stdcall SetWindowDisplayAffinity(long long)
-@ stub SetWindowFullScreenState
+# @ stub SetWindowFullScreenState
 @ stdcall SetWindowLongA(long long long)
 @ stdcall -arch=win64 SetWindowLongPtrA(long long long)
 @ stdcall -arch=win64 SetWindowLongPtrW(long long long)

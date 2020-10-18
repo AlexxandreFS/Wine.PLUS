@@ -3048,7 +3048,7 @@ BOOL WINAPI ImmTranslateMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lKeyD
     else
         return FALSE;
 
-    if (!data->immKbd->hIME || !data->immKbd->pImeToAsciiEx)
+    if (!data->immKbd->hIME || !data->immKbd->pImeToAsciiEx || data->lastVK == VK_PROCESSKEY)
         return FALSE;
 
     GetKeyboardState(state);

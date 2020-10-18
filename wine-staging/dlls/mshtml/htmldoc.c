@@ -711,34 +711,26 @@ static HRESULT WINAPI HTMLDocument_put_bgColor(IHTMLDocument2 *iface, VARIANT v)
 static HRESULT WINAPI HTMLDocument_get_bgColor(IHTMLDocument2 *iface, VARIANT *p)
 {
     HTMLDocument *This = impl_from_IHTMLDocument2(iface);
-    IHTMLElement *element = NULL;
-    IHTMLBodyElement *body;
-    HRESULT hr;
+    nsAString nsstr;
+    nsresult nsres;
+    HRESULT hres;
 
     TRACE("(%p)->(%p)\n", This, p);
 
-    hr = IHTMLDocument2_get_body(iface, &element);
-    if (FAILED(hr))
-    {
-        ERR("Failed to get body (0x%08x)\n", hr);
-        return hr;
+    if(!This->doc_node->nsdoc) {
+        WARN("NULL nsdoc\n");
+        return E_UNEXPECTED;
     }
 
-    if(!element)
-    {
-        FIXME("Empty body element.\n");
-        return hr;
+    nsAString_Init(&nsstr, NULL);
+    nsres = nsIDOMHTMLDocument_GetBgColor(This->doc_node->nsdoc, &nsstr);
+    hres = return_nsstr_variant(nsres, &nsstr, NSSTR_COLOR, p);
+    if(hres == S_OK && V_VT(p) == VT_BSTR && !V_BSTR(p)) {
+        TRACE("default #ffffff\n");
+        if(!(V_BSTR(p) = SysAllocString(L"#ffffff")))
+            hres = E_OUTOFMEMORY;
     }
-
-    hr = IHTMLElement_QueryInterface(element, &IID_IHTMLBodyElement, (void**)&body);
-    if (SUCCEEDED(hr))
-    {
-        hr = IHTMLBodyElement_get_bgColor(body, p);
-        IHTMLBodyElement_Release(body);
-    }
-    IHTMLElement_Release(element);
-
-    return hr;
+    return hres;
 }
 
 static HRESULT WINAPI HTMLDocument_put_fgColor(IHTMLDocument2 *iface, VARIANT v)
@@ -912,17 +904,10 @@ static HRESULT WINAPI HTMLDocument_get_cookie(IHTMLDocument2 *iface, BSTR *p)
 
     size = 0;
     bret = InternetGetCookieExW(This->window->url, NULL, NULL, &size, 0, NULL);
-    if(!bret) {
-        switch(GetLastError()) {
-        case ERROR_INSUFFICIENT_BUFFER:
-            break;
-        case ERROR_NO_MORE_ITEMS:
-            *p = NULL;
-            return S_OK;
-        default:
-            FIXME("InternetGetCookieExW failed: %u\n", GetLastError());
-            return HRESULT_FROM_WIN32(GetLastError());
-        }
+    if(!bret && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        WARN("InternetGetCookieExW failed: %u\n", GetLastError());
+        *p = NULL;
+        return S_OK;
     }
 
     if(!size) {
@@ -2677,11 +2662,23 @@ static HRESULT WINAPI HTMLDocument4_get_onselectionchange(IHTMLDocument4 *iface,
     return get_doc_event(This, EVENTID_SELECTIONCHANGE, p);
 }
 
-static HRESULT WINAPI HTMLDocument4_get_namespace(IHTMLDocument4 *iface, IDispatch **p)
+static HRESULT WINAPI HTMLDocument4_get_namespaces(IHTMLDocument4 *iface, IDispatch **p)
 {
     HTMLDocument *This = impl_from_IHTMLDocument4(iface);
-    FIXME("(%p)->(%p)\n", This, p);
-    return E_NOTIMPL;
+
+    TRACE("(%p)->(%p)\n", This, p);
+
+    if(!This->doc_node->namespaces) {
+        HRESULT hres;
+
+        hres = create_namespace_collection(&This->doc_node->namespaces);
+        if(FAILED(hres))
+            return hres;
+    }
+
+    IHTMLNamespaceCollection_AddRef(This->doc_node->namespaces);
+    *p = (IDispatch*)This->doc_node->namespaces;
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLDocument4_createDocumentFromUrl(IHTMLDocument4 *iface, BSTR bstrUrl,
@@ -2772,7 +2769,7 @@ static const IHTMLDocument4Vtbl HTMLDocument4Vtbl = {
     HTMLDocument4_hasFocus,
     HTMLDocument4_put_onselectionchange,
     HTMLDocument4_get_onselectionchange,
-    HTMLDocument4_get_namespace,
+    HTMLDocument4_get_namespaces,
     HTMLDocument4_createDocumentFromUrl,
     HTMLDocument4_put_media,
     HTMLDocument4_get_media,
@@ -4843,8 +4840,10 @@ static ULONG WINAPI MarkupServices_Release(IMarkupServices *iface)
 static HRESULT WINAPI MarkupServices_CreateMarkupPointer(IMarkupServices *iface, IMarkupPointer **ppPointer)
 {
     HTMLDocument *This = impl_from_IMarkupServices(iface);
-    FIXME("(%p)->(%p)\n", This, ppPointer);
-    return E_NOTIMPL;
+
+    TRACE("(%p)->(%p)\n", This, ppPointer);
+
+    return create_markup_pointer(ppPointer);
 }
 
 static HRESULT WINAPI MarkupServices_CreateMarkupContainer(IMarkupServices *iface, IMarkupContainer **ppMarkupContainer)
@@ -5438,6 +5437,11 @@ void detach_document_node(HTMLDocumentNode *doc)
         doc->dom_implementation = NULL;
     }
 
+    if(doc->namespaces) {
+        IHTMLNamespaceCollection_Release(doc->namespaces);
+        doc->namespaces = NULL;
+    }
+
     detach_events(doc);
     detach_selection(doc);
     detach_ranges(doc);
@@ -6010,10 +6014,11 @@ static HRESULT create_document_object(BOOL is_mhtml, IUnknown *outer, REFIID rii
     doc->IUnknown_inner.lpVtbl = &HTMLDocumentObjVtbl;
     doc->ICustomDoc_iface.lpVtbl = &CustomDocVtbl;
 
+    doc->basedoc.doc_obj = doc;
+
     init_dispex(&doc->dispex, (IUnknown*)&doc->ICustomDoc_iface, &HTMLDocumentObj_dispex);
     init_doc(&doc->basedoc, outer ? outer : &doc->IUnknown_inner, &doc->dispex.IDispatchEx_iface);
     TargetContainer_Init(doc);
-    doc->basedoc.doc_obj = doc;
     doc->is_mhtml = is_mhtml;
 
     doc->task_magic = get_task_target_magic();

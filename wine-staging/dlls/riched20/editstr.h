@@ -21,10 +21,6 @@
 #ifndef __EDITSTR_H
 #define __EDITSTR_H
 
-#ifndef _WIN32_IE
-#define _WIN32_IE 0x0400
-#endif
-
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -47,11 +43,13 @@
 #include <textserv.h>
 #include "usp10.h"
 
+#include "wine/asm.h"
 #include "wine/debug.h"
 #include "wine/heap.h"
 #include "wine/list.h"
+#include "wine/rbtree.h"
 
-#if defined(__i386__) && !defined(__MINGW32__)
+#ifdef __ASM_USE_THISCALL_WRAPPER
 extern const struct ITextHostVtbl itextHostStdcallVtbl DECLSPEC_HIDDEN;
 #endif /* __i386__ */
 
@@ -219,7 +217,7 @@ typedef struct tagME_Paragraph
   struct para_num para_num;
   ME_Run *eop_run; /* ptr to the end-of-para run */
   struct tagME_DisplayItem *prev_para, *next_para;
-  struct tagME_DisplayItem *prev_marked, *next_marked;
+  struct wine_rb_entry marked_entry;
 } ME_Paragraph;
 
 typedef struct tagME_Cell /* v4.1 */
@@ -434,7 +432,6 @@ typedef struct tagME_TextEditor
   int imeStartIndex;
   DWORD selofs; /* The size of the selection bar on the left side of control */
   ME_SelectionType nSelectionType;
-  ME_DisplayItem *first_marked_para;
 
   /* Track previous notified selection */
   CHARRANGE notified_cr;
@@ -448,6 +445,7 @@ typedef struct tagME_TextEditor
   int wheel_remain;
   struct list style_list;
   struct list reobj_list;
+  struct wine_rb_tree marked_paras;
 } ME_TextEditor;
 
 typedef struct tagME_Context

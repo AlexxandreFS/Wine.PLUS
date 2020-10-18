@@ -35,7 +35,6 @@
 #include "mtdll.h"
 
 #include "wine/debug.h"
-#include "wine/unicode.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msvcrt);
 
@@ -177,18 +176,17 @@ static void remap_synonym(char *name)
 }
 
 /* Note: Flags are weighted in order of matching importance */
-#define FOUND_SNAME            0x8
-#define FOUND_LANGUAGE         0x4
-#define FOUND_COUNTRY          0x2
-#define FOUND_CODEPAGE         0x1
+#define FOUND_SNAME            0x4
+#define FOUND_LANGUAGE         0x2
+#define FOUND_COUNTRY          0x1
 
 typedef struct {
   char search_language[MAX_ELEM_LEN];
   char search_country[MAX_ELEM_LEN];
-  char search_codepage[MAX_ELEM_LEN];
-  char found_codepage[MAX_ELEM_LEN];
+  DWORD found_codepage;
   unsigned int match_flags;
   LANGID found_lang_id;
+  BOOL allow_sname;
 } locale_search_t;
 
 #define CONTINUE_LOOKING TRUE
@@ -227,8 +225,7 @@ find_best_locale_proc(HMODULE hModule, LPCSTR type, LPCSTR name, WORD LangID, LO
     return CONTINUE_LOOKING;
 
 #if _MSVCR_VER >= 110
-  if (!res->search_country[0] && !res->search_codepage[0] &&
-          compare_info(lcid,LOCALE_SNAME,buff,res->search_language, TRUE))
+  if (res->allow_sname && compare_info(lcid,LOCALE_SNAME,buff,res->search_language, TRUE))
   {
     TRACE(":Found locale: %s->%s\n", res->search_language, buff);
     res->match_flags = FOUND_SNAME;
@@ -263,27 +260,14 @@ find_best_locale_proc(HMODULE hModule, LPCSTR type, LPCSTR name, WORD LangID, LO
     return CONTINUE_LOOKING;
   }
 
-  /* Check codepage */
-  if (compare_info(lcid,LOCALE_IDEFAULTCODEPAGE,buff,res->search_codepage, TRUE) ||
-      (compare_info(lcid,LOCALE_IDEFAULTANSICODEPAGE,buff,res->search_codepage, TRUE)))
-  {
-    TRACE("Found codepage:%s->%s\n", res->search_codepage, buff);
-    flags |= FOUND_CODEPAGE;
-    memcpy(res->found_codepage,res->search_codepage,MAX_ELEM_LEN);
-  }
-  else if (!flags && (res->match_flags & FOUND_CODEPAGE))
-  {
-    return CONTINUE_LOOKING;
-  }
-
   if (flags > res->match_flags)
   {
     /* Found a better match than previously */
     res->match_flags = flags;
     res->found_lang_id = LangID;
   }
-  if ((flags & (FOUND_LANGUAGE | FOUND_COUNTRY | FOUND_CODEPAGE)) ==
-        (FOUND_LANGUAGE | FOUND_COUNTRY | FOUND_CODEPAGE))
+  if ((flags & (FOUND_LANGUAGE | FOUND_COUNTRY)) ==
+        (FOUND_LANGUAGE | FOUND_COUNTRY))
   {
     TRACE(":found exact locale match\n");
     return STOP_LOOKING;
@@ -291,15 +275,14 @@ find_best_locale_proc(HMODULE hModule, LPCSTR type, LPCSTR name, WORD LangID, LO
   return CONTINUE_LOOKING;
 }
 
-extern int atoi(const char *);
-
 /* Internal: Find the LCID for a locale specification */
 LCID MSVCRT_locale_to_LCID(const char *locale, unsigned short *codepage, BOOL *sname)
 {
     thread_data_t *data = msvcrt_get_thread_data();
-    LCID lcid;
-    locale_search_t search;
     const char *cp, *region;
+    BOOL is_sname = FALSE;
+    DWORD locale_cp;
+    LCID lcid;
 
     if (!strcmp(locale, data->cached_locale)) {
         if (codepage)
@@ -309,89 +292,84 @@ LCID MSVCRT_locale_to_LCID(const char *locale, unsigned short *codepage, BOOL *s
         return data->cached_lcid;
     }
 
-    memset(&search, 0, sizeof(locale_search_t));
-
     cp = strchr(locale, '.');
     region = strchr(locale, '_');
 
-    lstrcpynA(search.search_language, locale, MAX_ELEM_LEN);
-    if(region) {
-        lstrcpynA(search.search_country, region+1, MAX_ELEM_LEN);
-        if(region-locale < MAX_ELEM_LEN)
-            search.search_language[region-locale] = '\0';
-    } else
-        search.search_country[0] = '\0';
+    if(!locale[0] || (cp == locale && !region)) {
+        lcid = GetUserDefaultLCID();
+    } else {
+        locale_search_t search;
 
-    if(cp) {
-        lstrcpynA(search.search_codepage, cp+1, MAX_ELEM_LEN);
-        if(region && cp-region-1<MAX_ELEM_LEN)
-          search.search_country[cp-region-1] = '\0';
-        if(cp-locale < MAX_ELEM_LEN)
-            search.search_language[cp-locale] = '\0';
-    } else
-        search.search_codepage[0] = '\0';
+        memset(&search, 0, sizeof(locale_search_t));
+        lstrcpynA(search.search_language, locale, MAX_ELEM_LEN);
+        if(region) {
+            lstrcpynA(search.search_country, region+1, MAX_ELEM_LEN);
+            if(region-locale < MAX_ELEM_LEN)
+                search.search_language[region-locale] = '\0';
+        } else
+            search.search_country[0] = '\0';
 
-    if(!search.search_country[0] && !search.search_codepage[0])
-        remap_synonym(search.search_language);
-
-    if(!MSVCRT__stricmp(search.search_country, "China"))
-        strcpy(search.search_country, "People's Republic of China");
-
-    EnumResourceLanguagesA(GetModuleHandleA("KERNEL32"), (LPSTR)RT_STRING,
-            (LPCSTR)LOCALE_ILANGUAGE,find_best_locale_proc,
-            (LONG_PTR)&search);
-
-    if (!search.match_flags)
-        return -1;
-
-    /* If we were given something that didn't match, fail */
-    if (search.search_language[0] && !(search.match_flags & (FOUND_SNAME | FOUND_LANGUAGE)))
-        return -1;
-    if (search.search_country[0] && !(search.match_flags & FOUND_COUNTRY))
-        return -1;
-
-    lcid =  MAKELCID(search.found_lang_id, SORT_DEFAULT);
-
-    /* Populate partial locale, translating LCID to locale string elements */
-    if (!(search.match_flags & FOUND_CODEPAGE)) {
-        /* Even if a codepage is not enumerated for a locale
-         * it can be set if valid */
-        if (search.search_codepage[0]) {
-            if (IsValidCodePage(atoi(search.search_codepage)))
-                memcpy(search.found_codepage,search.search_codepage,MAX_ELEM_LEN);
-            else {
-                /* Special codepage values: OEM & ANSI */
-                if (!MSVCRT__stricmp(search.search_codepage,"OCP")) {
-                    GetLocaleInfoA(lcid, LOCALE_IDEFAULTCODEPAGE,
-                            search.found_codepage, MAX_ELEM_LEN);
-                } else if (!MSVCRT__stricmp(search.search_codepage,"ACP")) {
-                    GetLocaleInfoA(lcid, LOCALE_IDEFAULTANSICODEPAGE,
-                            search.found_codepage, MAX_ELEM_LEN);
-                } else
-                    return -1;
-
-                if (!atoi(search.found_codepage))
-                    return -1;
-            }
-        } else {
-            /* Prefer ANSI codepages if present */
-            GetLocaleInfoA(lcid, LOCALE_IDEFAULTANSICODEPAGE,
-                    search.found_codepage, MAX_ELEM_LEN);
-            if (!search.found_codepage[0] || !atoi(search.found_codepage))
-                GetLocaleInfoA(lcid, LOCALE_IDEFAULTCODEPAGE,
-                        search.found_codepage, MAX_ELEM_LEN);
+        if(cp) {
+            if(region && cp-region-1<MAX_ELEM_LEN)
+                search.search_country[cp-region-1] = '\0';
+            if(cp-locale < MAX_ELEM_LEN)
+                search.search_language[cp-locale] = '\0';
         }
+
+        if(!cp && !region)
+        {
+            remap_synonym(search.search_language);
+            search.allow_sname = TRUE;
+        }
+
+        if(!MSVCRT__stricmp(search.search_country, "China"))
+            strcpy(search.search_country, "People's Republic of China");
+
+        EnumResourceLanguagesA(GetModuleHandleA("KERNEL32"), (LPSTR)RT_STRING,
+                (LPCSTR)LOCALE_ILANGUAGE,find_best_locale_proc,
+                (LONG_PTR)&search);
+
+        if (!search.match_flags)
+            return -1;
+
+        /* If we were given something that didn't match, fail */
+        if (search.search_language[0] && !(search.match_flags & (FOUND_SNAME | FOUND_LANGUAGE)))
+            return -1;
+        if (search.search_country[0] && !(search.match_flags & FOUND_COUNTRY))
+            return -1;
+
+        lcid =  MAKELCID(search.found_lang_id, SORT_DEFAULT);
+        is_sname = (search.match_flags & FOUND_SNAME) != 0;
     }
+
+    /* Obtain code page */
+    if (!cp || !cp[1] || !MSVCRT__strnicmp(cp, ".ACP", 4)) {
+        GetLocaleInfoW(lcid, LOCALE_IDEFAULTANSICODEPAGE | LOCALE_RETURN_NUMBER,
+                (WCHAR *)&locale_cp, sizeof(DWORD)/sizeof(WCHAR));
+        if (!locale_cp)
+            locale_cp = GetACP();
+    } else if (!MSVCRT__strnicmp(cp, ".OCP", 4)) {
+        GetLocaleInfoW(lcid, LOCALE_IDEFAULTCODEPAGE | LOCALE_RETURN_NUMBER,
+                (WCHAR *)&locale_cp, sizeof(DWORD)/sizeof(WCHAR));
+    } else {
+        locale_cp = atoi(cp + 1);
+    }
+    if (!IsValidCodePage(locale_cp))
+        return -1;
+
+    if (!locale_cp)
+        return -1;
+
     if (codepage)
-        *codepage = atoi(search.found_codepage);
+        *codepage = locale_cp;
     if (sname)
-        *sname = (search.match_flags & FOUND_SNAME) != 0;
+        *sname = is_sname;
 
     if (strlen(locale) < sizeof(data->cached_locale)) {
         strcpy(data->cached_locale, locale);
         data->cached_lcid = lcid;
-        data->cached_cp = codepage ? *codepage : atoi(search.found_codepage);
-        data->cached_sname = (search.match_flags & FOUND_SNAME) != 0;
+        data->cached_cp = locale_cp;
+        data->cached_sname = is_sname;
     }
 
     return lcid;
@@ -455,7 +433,7 @@ static BOOL update_threadlocinfo_category(LCID lcid, unsigned short cp,
         len += GetLocaleInfoA(lcid, LOCALE_SENGCOUNTRY
                 |LOCALE_NOUSEROVERRIDE, &buf[len], 256-len);
         buf[len-1] = '.';
-        sprintf(buf+len, "%d", cp);
+        MSVCRT_sprintf(buf+len, "%d", cp);
         len += strlen(buf+len);
 
         return init_category_name(buf, len, locinfo, category);
@@ -508,7 +486,7 @@ static inline char* construct_lc_all(MSVCRT_pthreadlocinfo locinfo) {
     if(i==MSVCRT_LC_MAX)
         return locinfo->lc_category[MSVCRT_LC_COLLATE].locale;
 
-    sprintf(current_lc_all,
+    MSVCRT_sprintf(current_lc_all,
             "LC_COLLATE=%s;LC_CTYPE=%s;LC_MONETARY=%s;LC_NUMERIC=%s;LC_TIME=%s",
             locinfo->lc_category[MSVCRT_LC_COLLATE].locale,
             locinfo->lc_category[MSVCRT_LC_CTYPE].locale,
@@ -569,8 +547,8 @@ MSVCRT_wchar_t* CDECL _W_Getdays(void)
     TRACE("\n");
 
     for(i=0; i<7; i++) {
-        size += strlenW(cur->wstr.names.short_wday[i]) + 1;
-        size += strlenW(cur->wstr.names.wday[i]) + 1;
+        size += MSVCRT_wcslen(cur->wstr.names.short_wday[i]) + 1;
+        size += MSVCRT_wcslen(cur->wstr.names.wday[i]) + 1;
     }
     out = MSVCRT_malloc((size+1)*sizeof(*out));
     if(!out)
@@ -579,12 +557,12 @@ MSVCRT_wchar_t* CDECL _W_Getdays(void)
     size = 0;
     for(i=0; i<7; i++) {
         out[size++] = ':';
-        len = strlenW(cur->wstr.names.short_wday[i]);
+        len = MSVCRT_wcslen(cur->wstr.names.short_wday[i]);
         memcpy(&out[size], cur->wstr.names.short_wday[i], len*sizeof(*out));
         size += len;
 
         out[size++] = ':';
-        len = strlenW(cur->wstr.names.wday[i]);
+        len = MSVCRT_wcslen(cur->wstr.names.wday[i]);
         memcpy(&out[size], cur->wstr.names.wday[i], len*sizeof(*out));
         size += len;
     }
@@ -643,8 +621,8 @@ MSVCRT_wchar_t* CDECL _W_Getmonths(void)
     TRACE("\n");
 
     for(i=0; i<12; i++) {
-        size += strlenW(cur->wstr.names.short_mon[i]) + 1;
-        size += strlenW(cur->wstr.names.mon[i]) + 1;
+        size += MSVCRT_wcslen(cur->wstr.names.short_mon[i]) + 1;
+        size += MSVCRT_wcslen(cur->wstr.names.mon[i]) + 1;
     }
     out = MSVCRT_malloc((size+1)*sizeof(*out));
     if(!out)
@@ -653,12 +631,12 @@ MSVCRT_wchar_t* CDECL _W_Getmonths(void)
     size = 0;
     for(i=0; i<12; i++) {
         out[size++] = ':';
-        len = strlenW(cur->wstr.names.short_mon[i]);
+        len = MSVCRT_wcslen(cur->wstr.names.short_mon[i]);
         memcpy(&out[size], cur->wstr.names.short_mon[i], len*sizeof(*out));
         size += len;
 
         out[size++] = ':';
-        len = strlenW(cur->wstr.names.mon[i]);
+        len = MSVCRT_wcslen(cur->wstr.names.mon[i]);
         memcpy(&out[size], cur->wstr.names.mon[i], len*sizeof(*out));
         size += len;
     }
@@ -714,12 +692,52 @@ int CDECL __crtLCMapStringA(
   LCID lcid, DWORD mapflags, const char* src, int srclen, char* dst,
   int dstlen, unsigned int codepage, int xflag
 ) {
-  FIXME("(lcid %x, flags %x, %s(%d), %p(%d), %x, %d), partial stub!\n",
-        lcid,mapflags,src,srclen,dst,dstlen,codepage,xflag);
-  /* FIXME: A bit incorrect. But msvcrt itself just converts its
-   * arguments to wide strings and then calls LCMapStringW
-   */
-  return LCMapStringA(lcid,mapflags,src,srclen,dst,dstlen);
+    WCHAR buf_in[32], *in = buf_in;
+    WCHAR buf_out[32], *out = buf_out;
+    int in_len, out_len, r;
+
+    TRACE("(lcid %x, flags %x, %s(%d), %p(%d), %x, %d), partial stub!\n",
+            lcid, mapflags, src, srclen, dst, dstlen, codepage, xflag);
+
+    in_len = MultiByteToWideChar(codepage, MB_ERR_INVALID_CHARS, src, srclen, NULL, 0);
+    if (!in_len) return 0;
+    if (in_len > ARRAY_SIZE(buf_in))
+    {
+        in = malloc(in_len * sizeof(WCHAR));
+        if (!in) return 0;
+    }
+
+    r = MultiByteToWideChar(codepage, MB_ERR_INVALID_CHARS, src, srclen, in, in_len);
+    if (!r) goto done;
+
+    if (mapflags & LCMAP_SORTKEY)
+    {
+        r = LCMapStringW(lcid, mapflags, in, in_len, (WCHAR*)dst, dstlen);
+        goto done;
+    }
+
+    r = LCMapStringW(lcid, mapflags, in, in_len, NULL, 0);
+    if (!r) goto done;
+    out_len = r;
+    if (r > ARRAY_SIZE(buf_out))
+    {
+        out = malloc(r * sizeof(WCHAR));
+        if (!out)
+        {
+            r = 0;
+            goto done;
+        }
+    }
+
+    r = LCMapStringW(lcid, mapflags, in, in_len, out, out_len);
+    if (!r) goto done;
+
+    r = WideCharToMultiByte(codepage, 0, out, out_len, dst, dstlen, NULL, NULL);
+
+done:
+    if (in != buf_in) free(in);
+    if (out != buf_out) free(out);
+    return r;
 }
 
 /*********************************************************************
@@ -787,9 +805,13 @@ MSVCRT_wint_t CDECL MSVCRT_btowc(int c)
     unsigned char letter = c;
     MSVCRT_wchar_t ret;
 
-    if(!MultiByteToWideChar(get_locinfo()->lc_handle[MSVCRT_LC_CTYPE],
-                0, (LPCSTR)&letter, 1, &ret, 1))
-        return 0;
+    if(c == MSVCRT_EOF)
+        return MSVCRT_WEOF;
+    if(!get_locinfo()->lc_codepage)
+        return c & 255;
+    if(!MultiByteToWideChar(get_locinfo()->lc_codepage,
+                MB_ERR_INVALID_CHARS, (LPCSTR)&letter, 1, &ret, 1))
+        return MSVCRT_WEOF;
 
     return ret;
 }
@@ -1087,16 +1109,6 @@ static MSVCRT_pthreadlocinfo create_locinfo(int category,
     if(locale[0]=='C' && !locale[1]) {
         lcid[0] = 0;
         cp[0] = CP_ACP;
-    } else if(!locale[0]) {
-        lcid[0] = GetSystemDefaultLCID();
-        GetLocaleInfoA(lcid[0], LOCALE_IDEFAULTANSICODEPAGE
-                |LOCALE_NOUSEROVERRIDE, buf, sizeof(buf));
-        cp[0] = atoi(buf);
-
-        for(i=1; i<6; i++) {
-            lcid[i] = lcid[0];
-            cp[i] = cp[0];
-        }
     } else if (locale[0] == 'L' && locale[1] == 'C' && locale[2] == '_') {
         const char *p;
 

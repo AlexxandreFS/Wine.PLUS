@@ -180,7 +180,7 @@ typedef struct _ACPacket {
 } ACPacket;
 
 struct ACImpl {
-    IAudioClient IAudioClient_iface;
+    IAudioClient3 IAudioClient3_iface;
     IAudioRenderClient IAudioRenderClient_iface;
     IAudioCaptureClient IAudioCaptureClient_iface;
     IAudioClock IAudioClock_iface;
@@ -220,7 +220,7 @@ struct ACImpl {
     struct list packet_filled_head;
 };
 
-static const IAudioClientVtbl AudioClient_Vtbl;
+static const IAudioClient3Vtbl AudioClient3_Vtbl;
 static const IAudioRenderClientVtbl AudioRenderClient_Vtbl;
 static const IAudioCaptureClientVtbl AudioCaptureClient_Vtbl;
 static const IAudioSessionControl2Vtbl AudioSessionControl2_Vtbl;
@@ -232,9 +232,9 @@ static const IAudioStreamVolumeVtbl AudioStreamVolume_Vtbl;
 
 static AudioSessionWrapper *AudioSessionWrapper_Create(ACImpl *client);
 
-static inline ACImpl *impl_from_IAudioClient(IAudioClient *iface)
+static inline ACImpl *impl_from_IAudioClient3(IAudioClient3 *iface)
 {
-    return CONTAINING_RECORD(iface, ACImpl, IAudioClient_iface);
+    return CONTAINING_RECORD(iface, ACImpl, IAudioClient3_iface);
 }
 
 static inline ACImpl *impl_from_IAudioRenderClient(IAudioRenderClient *iface)
@@ -1596,7 +1596,7 @@ HRESULT WINAPI AUDDRV_GetAudioEndpoint(GUID *guid, IMMDevice *dev, IAudioClient 
     if (!This)
         return E_OUTOFMEMORY;
 
-    This->IAudioClient_iface.lpVtbl = &AudioClient_Vtbl;
+    This->IAudioClient3_iface.lpVtbl = &AudioClient3_Vtbl;
     This->IAudioRenderClient_iface.lpVtbl = &AudioRenderClient_Vtbl;
     This->IAudioCaptureClient_iface.lpVtbl = &AudioCaptureClient_Vtbl;
     This->IAudioClock_iface.lpVtbl = &AudioClock_Vtbl;
@@ -1608,23 +1608,23 @@ HRESULT WINAPI AUDDRV_GetAudioEndpoint(GUID *guid, IMMDevice *dev, IAudioClient 
         This->vol[i] = 1.f;
     strcpy(This->device, pulse_name);
 
-    hr = CoCreateFreeThreadedMarshaler((IUnknown*)&This->IAudioClient_iface, &This->marshal);
+    hr = CoCreateFreeThreadedMarshaler((IUnknown*)&This->IAudioClient3_iface, &This->marshal);
     if (hr) {
         HeapFree(GetProcessHeap(), 0, This);
         return hr;
     }
     IMMDevice_AddRef(This->parent);
 
-    *out = &This->IAudioClient_iface;
-    IAudioClient_AddRef(&This->IAudioClient_iface);
+    *out = (IAudioClient *)&This->IAudioClient3_iface;
+    IAudioClient3_AddRef(&This->IAudioClient3_iface);
 
     return S_OK;
 }
 
-static HRESULT WINAPI AudioClient_QueryInterface(IAudioClient *iface,
+static HRESULT WINAPI AudioClient_QueryInterface(IAudioClient3 *iface,
         REFIID riid, void **ppv)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
 
     TRACE("(%p)->(%s, %p)\n", iface, debugstr_guid(riid), ppv);
 
@@ -1632,7 +1632,10 @@ static HRESULT WINAPI AudioClient_QueryInterface(IAudioClient *iface,
         return E_POINTER;
 
     *ppv = NULL;
-    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IAudioClient))
+    if (IsEqualIID(riid, &IID_IUnknown) ||
+            IsEqualIID(riid, &IID_IAudioClient) ||
+            IsEqualIID(riid, &IID_IAudioClient2) ||
+            IsEqualIID(riid, &IID_IAudioClient3))
         *ppv = iface;
     if (*ppv) {
         IUnknown_AddRef((IUnknown*)*ppv);
@@ -1646,18 +1649,18 @@ static HRESULT WINAPI AudioClient_QueryInterface(IAudioClient *iface,
     return E_NOINTERFACE;
 }
 
-static ULONG WINAPI AudioClient_AddRef(IAudioClient *iface)
+static ULONG WINAPI AudioClient_AddRef(IAudioClient3 *iface)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     ULONG ref;
     ref = InterlockedIncrement(&This->ref);
     TRACE("(%p) Refcount now %u\n", This, ref);
     return ref;
 }
 
-static ULONG WINAPI AudioClient_Release(IAudioClient *iface)
+static ULONG WINAPI AudioClient_Release(IAudioClient3 *iface)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     ULONG ref;
     ref = InterlockedDecrement(&This->ref);
     TRACE("(%p) Refcount now %u\n", This, ref);
@@ -1956,12 +1959,12 @@ static HRESULT pulse_spec_from_waveformat(ACImpl *This, const WAVEFORMATEX *fmt)
     return S_OK;
 }
 
-static HRESULT WINAPI AudioClient_Initialize(IAudioClient *iface,
+static HRESULT WINAPI AudioClient_Initialize(IAudioClient3 *iface,
         AUDCLNT_SHAREMODE mode, DWORD flags, REFERENCE_TIME duration,
         REFERENCE_TIME period, const WAVEFORMATEX *fmt,
         const GUID *sessionguid)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     HRESULT hr = S_OK;
     UINT32 bufsize_bytes;
 
@@ -1983,8 +1986,10 @@ static HRESULT WINAPI AudioClient_Initialize(IAudioClient *iface,
                 AUDCLNT_STREAMFLAGS_RATEADJUST |
                 AUDCLNT_SESSIONFLAGS_EXPIREWHENUNOWNED |
                 AUDCLNT_SESSIONFLAGS_DISPLAY_HIDE |
-                AUDCLNT_SESSIONFLAGS_DISPLAY_HIDEWHENEXPIRED)) {
-        TRACE("Unknown flags: %08x\n", flags);
+                AUDCLNT_SESSIONFLAGS_DISPLAY_HIDEWHENEXPIRED |
+                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY |
+                AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM)) {
+        FIXME("Unknown flags: %08x\n", flags);
         return E_INVALIDARG;
     }
 
@@ -2078,10 +2083,10 @@ exit:
     return hr;
 }
 
-static HRESULT WINAPI AudioClient_GetBufferSize(IAudioClient *iface,
+static HRESULT WINAPI AudioClient_GetBufferSize(IAudioClient3 *iface,
         UINT32 *out)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     HRESULT hr;
 
     TRACE("(%p)->(%p)\n", This, out);
@@ -2098,10 +2103,10 @@ static HRESULT WINAPI AudioClient_GetBufferSize(IAudioClient *iface,
     return hr;
 }
 
-static HRESULT WINAPI AudioClient_GetStreamLatency(IAudioClient *iface,
+static HRESULT WINAPI AudioClient_GetStreamLatency(IAudioClient3 *iface,
         REFERENCE_TIME *latency)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     const pa_buffer_attr *attr;
     REFERENCE_TIME lat;
     HRESULT hr;
@@ -2148,10 +2153,10 @@ static void ACImpl_GetCapturePad(ACImpl *This, UINT32 *out)
         *out = This->held_bytes / pa_frame_size(&This->ss);
 }
 
-static HRESULT WINAPI AudioClient_GetCurrentPadding(IAudioClient *iface,
+static HRESULT WINAPI AudioClient_GetCurrentPadding(IAudioClient3 *iface,
         UINT32 *out)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     HRESULT hr;
 
     TRACE("(%p)->(%p)\n", This, out);
@@ -2176,11 +2181,11 @@ static HRESULT WINAPI AudioClient_GetCurrentPadding(IAudioClient *iface,
     return S_OK;
 }
 
-static HRESULT WINAPI AudioClient_IsFormatSupported(IAudioClient *iface,
+static HRESULT WINAPI AudioClient_IsFormatSupported(IAudioClient3 *iface,
         AUDCLNT_SHAREMODE mode, const WAVEFORMATEX *fmt,
         WAVEFORMATEX **out)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     HRESULT hr = S_OK;
     WAVEFORMATEX *closest = NULL;
     BOOL exclusive;
@@ -2329,10 +2334,10 @@ static HRESULT WINAPI AudioClient_IsFormatSupported(IAudioClient *iface,
     return hr;
 }
 
-static HRESULT WINAPI AudioClient_GetMixFormat(IAudioClient *iface,
+static HRESULT WINAPI AudioClient_GetMixFormat(IAudioClient3 *iface,
         WAVEFORMATEX **pwfx)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     WAVEFORMATEXTENSIBLE *fmt = &pulse_fmt[This->dataflow == eCapture];
 
     TRACE("(%p)->(%p)\n", This, pwfx);
@@ -2347,10 +2352,10 @@ static HRESULT WINAPI AudioClient_GetMixFormat(IAudioClient *iface,
     return S_OK;
 }
 
-static HRESULT WINAPI AudioClient_GetDevicePeriod(IAudioClient *iface,
+static HRESULT WINAPI AudioClient_GetDevicePeriod(IAudioClient3 *iface,
         REFERENCE_TIME *defperiod, REFERENCE_TIME *minperiod)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
 
     TRACE("(%p)->(%p, %p)\n", This, defperiod, minperiod);
 
@@ -2365,9 +2370,9 @@ static HRESULT WINAPI AudioClient_GetDevicePeriod(IAudioClient *iface,
     return S_OK;
 }
 
-static HRESULT WINAPI AudioClient_Start(IAudioClient *iface)
+static HRESULT WINAPI AudioClient_Start(IAudioClient3 *iface)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     HRESULT hr = S_OK;
     int success;
     pa_operation *o;
@@ -2416,9 +2421,9 @@ static HRESULT WINAPI AudioClient_Start(IAudioClient *iface)
     return hr;
 }
 
-static HRESULT WINAPI AudioClient_Stop(IAudioClient *iface)
+static HRESULT WINAPI AudioClient_Stop(IAudioClient3 *iface)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     HRESULT hr = S_OK;
     pa_operation *o;
     int success;
@@ -2455,9 +2460,9 @@ static HRESULT WINAPI AudioClient_Stop(IAudioClient *iface)
     return hr;
 }
 
-static HRESULT WINAPI AudioClient_Reset(IAudioClient *iface)
+static HRESULT WINAPI AudioClient_Reset(IAudioClient3 *iface)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     HRESULT hr = S_OK;
 
     TRACE("(%p)\n", This);
@@ -2510,10 +2515,10 @@ static HRESULT WINAPI AudioClient_Reset(IAudioClient *iface)
     return hr;
 }
 
-static HRESULT WINAPI AudioClient_SetEventHandle(IAudioClient *iface,
+static HRESULT WINAPI AudioClient_SetEventHandle(IAudioClient3 *iface,
         HANDLE event)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     HRESULT hr;
 
     TRACE("(%p)->(%p)\n", This, event);
@@ -2538,10 +2543,10 @@ static HRESULT WINAPI AudioClient_SetEventHandle(IAudioClient *iface,
     return hr;
 }
 
-static HRESULT WINAPI AudioClient_GetService(IAudioClient *iface, REFIID riid,
+static HRESULT WINAPI AudioClient_GetService(IAudioClient3 *iface, REFIID riid,
         void **ppv)
 {
-    ACImpl *This = impl_from_IAudioClient(iface);
+    ACImpl *This = impl_from_IAudioClient3(iface);
     HRESULT hr;
 
     TRACE("(%p)->(%s, %p)\n", This, debugstr_guid(riid), ppv);
@@ -2593,7 +2598,90 @@ static HRESULT WINAPI AudioClient_GetService(IAudioClient *iface, REFIID riid,
     return E_NOINTERFACE;
 }
 
-static const IAudioClientVtbl AudioClient_Vtbl =
+static HRESULT WINAPI AudioClient_IsOffloadCapable(IAudioClient3 *iface,
+        AUDIO_STREAM_CATEGORY category, BOOL *offload_capable)
+{
+    ACImpl *This = impl_from_IAudioClient3(iface);
+
+    TRACE("(%p)->(0x%x, %p)\n", This, category, offload_capable);
+
+    if(!offload_capable)
+        return E_INVALIDARG;
+
+    *offload_capable = FALSE;
+
+    return S_OK;
+}
+
+static HRESULT WINAPI AudioClient_SetClientProperties(IAudioClient3 *iface,
+        const AudioClientProperties *prop)
+{
+    ACImpl *This = impl_from_IAudioClient3(iface);
+
+    TRACE("(%p)->(%p)\n", This, prop);
+
+    if(!prop)
+        return E_POINTER;
+
+    if(prop->cbSize != sizeof(*prop))
+        return E_INVALIDARG;
+
+    TRACE("{ bIsOffload: %u, eCategory: 0x%x, Options: 0x%x }\n",
+            prop->bIsOffload,
+            prop->eCategory,
+            prop->Options);
+
+    if(prop->bIsOffload)
+        return AUDCLNT_E_ENDPOINT_OFFLOAD_NOT_CAPABLE;
+
+    return S_OK;
+}
+
+static HRESULT WINAPI AudioClient_GetBufferSizeLimits(IAudioClient3 *iface,
+        const WAVEFORMATEX *format, BOOL event_driven, REFERENCE_TIME *min_duration,
+        REFERENCE_TIME *max_duration)
+{
+    ACImpl *This = impl_from_IAudioClient3(iface);
+
+    FIXME("(%p)->(%p, %u, %p, %p)\n", This, format, event_driven, min_duration, max_duration);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI AudioClient_GetSharedModeEnginePeriod(IAudioClient3 *iface,
+        const WAVEFORMATEX *format, UINT32 *default_period_frames, UINT32 *unit_period_frames,
+        UINT32 *min_period_frames, UINT32 *max_period_frames)
+{
+    ACImpl *This = impl_from_IAudioClient3(iface);
+
+    FIXME("(%p)->(%p, %p, %p, %p, %p)\n", This, format, default_period_frames, unit_period_frames,
+            min_period_frames, max_period_frames);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI AudioClient_GetCurrentSharedModeEnginePeriod(IAudioClient3 *iface,
+        WAVEFORMATEX **cur_format, UINT32 *cur_period_frames)
+{
+    ACImpl *This = impl_from_IAudioClient3(iface);
+
+    FIXME("(%p)->(%p, %p)\n", This, cur_format, cur_period_frames);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI AudioClient_InitializeSharedAudioStream(IAudioClient3 *iface,
+        DWORD flags, UINT32 period_frames, const WAVEFORMATEX *format,
+        const GUID *session_guid)
+{
+    ACImpl *This = impl_from_IAudioClient3(iface);
+
+    FIXME("(%p)->(0x%x, %u, %p, %s)\n", This, flags, period_frames, format, debugstr_guid(session_guid));
+
+    return E_NOTIMPL;
+}
+
+static const IAudioClient3Vtbl AudioClient3_Vtbl =
 {
     AudioClient_QueryInterface,
     AudioClient_AddRef,
@@ -2609,7 +2697,13 @@ static const IAudioClientVtbl AudioClient_Vtbl =
     AudioClient_Stop,
     AudioClient_Reset,
     AudioClient_SetEventHandle,
-    AudioClient_GetService
+    AudioClient_GetService,
+    AudioClient_IsOffloadCapable,
+    AudioClient_SetClientProperties,
+    AudioClient_GetBufferSizeLimits,
+    AudioClient_GetSharedModeEnginePeriod,
+    AudioClient_GetCurrentSharedModeEnginePeriod,
+    AudioClient_InitializeSharedAudioStream,
 };
 
 static HRESULT WINAPI AudioRenderClient_QueryInterface(
@@ -2640,13 +2734,13 @@ static HRESULT WINAPI AudioRenderClient_QueryInterface(
 static ULONG WINAPI AudioRenderClient_AddRef(IAudioRenderClient *iface)
 {
     ACImpl *This = impl_from_IAudioRenderClient(iface);
-    return AudioClient_AddRef(&This->IAudioClient_iface);
+    return AudioClient_AddRef(&This->IAudioClient3_iface);
 }
 
 static ULONG WINAPI AudioRenderClient_Release(IAudioRenderClient *iface)
 {
     ACImpl *This = impl_from_IAudioRenderClient(iface);
-    return AudioClient_Release(&This->IAudioClient_iface);
+    return AudioClient_Release(&This->IAudioClient3_iface);
 }
 
 static void alloc_tmp_buffer(ACImpl *This, UINT32 bytes)
@@ -2805,13 +2899,13 @@ static HRESULT WINAPI AudioCaptureClient_QueryInterface(
 static ULONG WINAPI AudioCaptureClient_AddRef(IAudioCaptureClient *iface)
 {
     ACImpl *This = impl_from_IAudioCaptureClient(iface);
-    return IAudioClient_AddRef(&This->IAudioClient_iface);
+    return IAudioClient3_AddRef(&This->IAudioClient3_iface);
 }
 
 static ULONG WINAPI AudioCaptureClient_Release(IAudioCaptureClient *iface)
 {
     ACImpl *This = impl_from_IAudioCaptureClient(iface);
-    return IAudioClient_Release(&This->IAudioClient_iface);
+    return IAudioClient3_Release(&This->IAudioClient3_iface);
 }
 
 static HRESULT WINAPI AudioCaptureClient_GetBuffer(IAudioCaptureClient *iface,
@@ -2953,13 +3047,13 @@ static HRESULT WINAPI AudioClock_QueryInterface(IAudioClock *iface,
 static ULONG WINAPI AudioClock_AddRef(IAudioClock *iface)
 {
     ACImpl *This = impl_from_IAudioClock(iface);
-    return IAudioClient_AddRef(&This->IAudioClient_iface);
+    return IAudioClient3_AddRef(&This->IAudioClient3_iface);
 }
 
 static ULONG WINAPI AudioClock_Release(IAudioClock *iface)
 {
     ACImpl *This = impl_from_IAudioClock(iface);
-    return IAudioClient_Release(&This->IAudioClient_iface);
+    return IAudioClient3_Release(&This->IAudioClient3_iface);
 }
 
 static HRESULT WINAPI AudioClock_GetFrequency(IAudioClock *iface, UINT64 *freq)
@@ -3057,13 +3151,13 @@ static HRESULT WINAPI AudioClock2_QueryInterface(IAudioClock2 *iface,
 static ULONG WINAPI AudioClock2_AddRef(IAudioClock2 *iface)
 {
     ACImpl *This = impl_from_IAudioClock2(iface);
-    return IAudioClient_AddRef(&This->IAudioClient_iface);
+    return IAudioClient3_AddRef(&This->IAudioClient3_iface);
 }
 
 static ULONG WINAPI AudioClock2_Release(IAudioClock2 *iface)
 {
     ACImpl *This = impl_from_IAudioClock2(iface);
-    return IAudioClient_Release(&This->IAudioClient_iface);
+    return IAudioClient3_Release(&This->IAudioClient3_iface);
 }
 
 static HRESULT WINAPI AudioClock2_GetDevicePosition(IAudioClock2 *iface,
@@ -3113,13 +3207,13 @@ static HRESULT WINAPI AudioStreamVolume_QueryInterface(
 static ULONG WINAPI AudioStreamVolume_AddRef(IAudioStreamVolume *iface)
 {
     ACImpl *This = impl_from_IAudioStreamVolume(iface);
-    return IAudioClient_AddRef(&This->IAudioClient_iface);
+    return IAudioClient3_AddRef(&This->IAudioClient3_iface);
 }
 
 static ULONG WINAPI AudioStreamVolume_Release(IAudioStreamVolume *iface)
 {
     ACImpl *This = impl_from_IAudioStreamVolume(iface);
-    return IAudioClient_Release(&This->IAudioClient_iface);
+    return IAudioClient3_Release(&This->IAudioClient3_iface);
 }
 
 static HRESULT WINAPI AudioStreamVolume_GetChannelCount(
@@ -3271,7 +3365,7 @@ static AudioSessionWrapper *AudioSessionWrapper_Create(ACImpl *client)
     ret->client = client;
     if (client) {
         ret->session = client->session;
-        AudioClient_AddRef(&client->IAudioClient_iface);
+        AudioClient_AddRef(&client->IAudioClient3_iface);
     }
 
     return ret;
@@ -3317,7 +3411,7 @@ static ULONG WINAPI AudioSessionControl_Release(IAudioSessionControl2 *iface)
     if (!ref) {
         if (This->client) {
             This->client->session_wrapper = NULL;
-            AudioClient_Release(&This->client->IAudioClient_iface);
+            AudioClient_Release(&This->client->IAudioClient3_iface);
         }
         HeapFree(GetProcessHeap(), 0, This);
     }

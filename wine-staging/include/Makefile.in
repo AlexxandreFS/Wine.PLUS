@@ -19,6 +19,7 @@ SOURCES = \
 	appcompatapi.h \
 	appmgmt.h \
 	appmodel.h \
+	asferr.h \
 	asptlb.idl \
 	asynot.idl \
 	asysta.idl \
@@ -37,6 +38,7 @@ SOURCES = \
 	avrt.h \
 	axcore.idl \
 	axextend.idl \
+	axextendenums.h \
 	basetsd.h \
 	basetyps.h \
 	bcrypt.h \
@@ -53,6 +55,8 @@ SOURCES = \
 	bluetoothapis.h \
 	bthsdpdef.h \
 	cderr.h \
+	cdosys.idl \
+	cfg.h \
 	cfgmgr32.h \
 	cguid.h \
 	chprst.idl \
@@ -61,6 +65,7 @@ SOURCES = \
 	cmdbas.idl \
 	cmdtxt.idl \
 	cmnquery.idl \
+	codecapi.h \
 	colinf.idl \
 	colordlg.h \
 	comcat.idl \
@@ -70,6 +75,7 @@ SOURCES = \
 	commoncontrols.idl \
 	compobj.h \
 	comsvcs.idl \
+	consoleapi.h \
 	control.idl \
 	cor.idl \
 	cordebug.idl \
@@ -107,6 +113,8 @@ SOURCES = \
 	d3d11sdklayers.idl \
 	d3d11shader.h \
 	d3d12.idl \
+	d3d12sdklayers.idl \
+	d3d12shader.idl \
 	d3d8.h \
 	d3d8caps.h \
 	d3d8types.h \
@@ -117,6 +125,7 @@ SOURCES = \
 	d3dcommon.idl \
 	d3dcompiler.h \
 	d3dhal.h \
+	d3dkmdt.h \
 	d3drm.h \
 	d3drmdef.h \
 	d3drmobj.h \
@@ -186,6 +195,7 @@ SOURCES = \
 	ddk/wdm.h \
 	ddk/winddiui.h \
 	ddk/winsplp.h \
+	ddk/wsk.h \
 	ddraw.h \
 	ddrawgdi.h \
 	ddrawi.h \
@@ -214,6 +224,7 @@ SOURCES = \
 	dmerror.h \
 	dmksctrl.h \
 	dmo.h \
+	dmodshow.idl \
 	dmoreg.h \
 	dmort.h \
 	dmplugin.h \
@@ -226,17 +237,20 @@ SOURCES = \
 	docobjectservice.idl \
 	downloadmgr.idl \
 	dpaddr.h \
+	dpfilter.h \
 	dplay.h \
 	dplay8.h \
 	dplobby.h \
 	dplobby8.h \
 	dpnathlp.h \
 	drmexternals.idl \
+	dsclient.h \
 	dsconf.h \
 	dsgetdc.h \
 	dshow.h \
 	dsound.h \
 	dsrole.h \
+	dvdif.idl \
 	dvdmedia.h \
 	dvoice.h \
 	dwmapi.h \
@@ -269,9 +283,11 @@ SOURCES = \
 	evntprov.h \
 	evntrace.h \
 	evr.idl \
+	evr9.idl \
 	excpt.h \
 	exdisp.idl \
 	exdispid.h \
+	exposeenums2managed.h \
 	fci.h \
 	fdi.h \
 	fileapi.h \
@@ -408,6 +424,7 @@ SOURCES = \
 	msdadc.idl \
 	msdaguid.h \
 	msdasc.idl \
+	msdasql.h \
 	mshtmcid.h \
 	mshtmdid.h \
 	mshtmhst.idl \
@@ -425,6 +442,16 @@ SOURCES = \
 	msvcrt/assert.h \
 	msvcrt/conio.h \
 	msvcrt/corecrt.h \
+	msvcrt/corecrt_startup.h \
+	msvcrt/corecrt_stdio_config.h \
+	msvcrt/corecrt_wctype.h \
+	msvcrt/corecrt_wdirect.h \
+	msvcrt/corecrt_wio.h \
+	msvcrt/corecrt_wprocess.h \
+	msvcrt/corecrt_wstdio.h \
+	msvcrt/corecrt_wstdlib.h \
+	msvcrt/corecrt_wstring.h \
+	msvcrt/corecrt_wtime.h \
 	msvcrt/crtdbg.h \
 	msvcrt/crtdefs.h \
 	msvcrt/ctype.h \
@@ -434,8 +461,10 @@ SOURCES = \
 	msvcrt/eh.h \
 	msvcrt/errno.h \
 	msvcrt/fcntl.h \
+	msvcrt/fenv.h \
 	msvcrt/float.h \
 	msvcrt/fpieee.h \
+	msvcrt/intrin.h \
 	msvcrt/inttypes.h \
 	msvcrt/io.h \
 	msvcrt/limits.h \
@@ -450,6 +479,7 @@ SOURCES = \
 	msvcrt/setjmp.h \
 	msvcrt/share.h \
 	msvcrt/signal.h \
+	msvcrt/stdbool.h \
 	msvcrt/stddef.h \
 	msvcrt/stdint.h \
 	msvcrt/stdio.h \
@@ -510,6 +540,7 @@ SOURCES = \
 	objbase.h \
 	objectarray.idl \
 	objidl.idl \
+	objidlbase.idl \
 	objsafe.idl \
 	objsel.h \
 	ocidl.idl \
@@ -586,6 +617,7 @@ SOURCES = \
 	rstloc.idl \
 	rstnot.idl \
 	rtutils.h \
+	rtworkq.idl \
 	sal.h \
 	sapi.idl \
 	sapiaut.idl \
@@ -619,6 +651,7 @@ SOURCES = \
 	slpublic.h \
 	snmp.h \
 	softpub.h \
+	spatialaudioclient.idl \
 	sperror.h \
 	sql.h \
 	sqlext.h \
@@ -666,6 +699,7 @@ SOURCES = \
 	uiautomationcore.idl \
 	uiautomationcoreapi.h \
 	uiribbon.idl \
+	unexposeenums2managed.h \
 	unknwn.idl \
 	urlhist.idl \
 	urlmon.idl \
@@ -698,22 +732,25 @@ SOURCES = \
 	wia_xp.idl \
 	wiadef.h \
 	wimgapi.h \
+	winapifamily.h \
 	winbase.h \
 	wincodec.idl \
 	wincodecsdk.idl \
 	wincon.h \
+	wincontypes.h \
 	wincred.h \
 	wincrypt.h \
 	windef.h \
 	windns.h \
 	windows.foundation.idl \
+	windows.globalization.idl \
 	windows.h \
 	windowsx.h \
 	wine/debug.h \
 	wine/exception.h \
 	wine/fil_data.idl \
 	wine/itss.idl \
-	wine/library.h \
+	wine/orpc.idl \
 	wine/svcctl.idl \
 	wine/winedxgi.idl \
 	winerror.h \
@@ -761,6 +798,7 @@ SOURCES = \
 	wmsdk.h \
 	wmsdkidl.idl \
 	wnaspi32.h \
+	wownt16.h \
 	wownt32.h \
 	wpcapi.idl \
 	ws2def.h \
@@ -781,6 +819,10 @@ SOURCES = \
 	wtypes.idl \
 	wuapi.idl \
 	x3daudio.h \
+	xact.h \
+	xact3.h \
+	xact2wb.h \
+	xact3wb.h \
 	xapo.idl \
 	xapofx.h \
 	xaudio2.idl \

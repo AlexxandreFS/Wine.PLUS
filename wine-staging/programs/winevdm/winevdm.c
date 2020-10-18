@@ -31,11 +31,11 @@
 #include "winuser.h"
 #include "wincon.h"
 #include "wine/unicode.h"
-#include "wine/library.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(winevdm);
 
+#define DOSBOX "dosbox"
 
 /*** PIF file structures ***/
 #include "pshpack1.h"
@@ -119,7 +119,7 @@ static char *find_dosbox(void)
 
     envpath_len = strlen( envpath );
     path = HeapAlloc( GetProcessHeap(), 0, envpath_len + 1 );
-    buffer = HeapAlloc( GetProcessHeap(), 0, envpath_len + sizeof("/dosbox") );
+    buffer = HeapAlloc( GetProcessHeap(), 0, envpath_len + strlen(DOSBOX) + 2 );
     strcpy( path, envpath );
 
     p = path;
@@ -131,7 +131,7 @@ static char *find_dosbox(void)
         while (*p && *p != ':') p++;
         if (*p == ':') *p++ = 0;
         strcpy( buffer, dir );
-        strcat( buffer, "/dosbox" );
+        strcat( buffer, "/" DOSBOX );
         if (!stat( buffer, &st ))
         {
             HeapFree( GetProcessHeap(), 0, path );
@@ -150,11 +150,12 @@ static char *find_dosbox(void)
 static void start_dosbox( const char *appname, const char *args )
 {
     static const WCHAR cfgW[] = {'c','f','g',0};
-    const char *config_dir = wine_get_config_dir();
+    const char *home = getenv( "HOME" );
+    const char *prefix = getenv( "WINEPREFIX" );
     WCHAR path[MAX_PATH], config[MAX_PATH];
     HANDLE file;
     char *p, *buffer, app[MAX_PATH];
-    int i;
+    int i, len;
     int ret = 1;
     DWORD written, drives = GetLogicalDrives();
     char *dosbox = find_dosbox();
@@ -168,9 +169,10 @@ static void start_dosbox( const char *appname, const char *args )
     file = CreateFileW( config, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, 0 );
     if (file == INVALID_HANDLE_VALUE) return;
 
+    len = prefix ? strlen(prefix) : strlen(home) + strlen("/.wine");
     buffer = HeapAlloc( GetProcessHeap(), 0, sizeof("[autoexec]") +
                         sizeof("mount -z c") + sizeof("config -securemode") +
-                        25 * (strlen(config_dir) + sizeof("mount c /dosdevices/c:")) +
+                        25 * (len + sizeof("mount c /dosdevices/c:")) +
                         4 * strlenW( path ) +
                         6 + strlen( app ) + strlen( args ) + 20 );
     p = buffer;
@@ -182,8 +184,13 @@ static void start_dosbox( const char *appname, const char *args )
             break;
         }
     for (i = 0; i <= 25; i++)
-        if (drives & (1 << i))
-            p += sprintf( p, "mount %c %s/dosdevices/%c:\n", 'a' + i, config_dir, 'a' + i );
+    {
+        if (!(drives & (1 << i))) continue;
+        if (prefix)
+            p += sprintf( p, "mount %c %s/dosdevices/%c:\n", 'a' + i, prefix, 'a' + i );
+        else
+            p += sprintf( p, "mount %c %s/.wine/dosdevices/%c:\n", 'a' + i, home, 'a' + i );
+    }
     p += sprintf( p, "%c:\ncd ", path[0] );
     p += WideCharToMultiByte( CP_UNIXCP, 0, path + 2, -1, p, 4 * strlenW(path), NULL, NULL ) - 1;
     p += sprintf( p, "\nconfig -securemode\n" );

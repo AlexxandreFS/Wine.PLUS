@@ -32,7 +32,6 @@
 #include "winnls.h"
 #include "winternl.h"
 #include "wine/debug.h"
-#include "wine/unicode.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msvcrt);
 
@@ -1997,6 +1996,9 @@ int CDECL _timespec64_get(struct _timespec64 *ts, int base)
 int CDECL _timespec32_get(struct _timespec32 *ts, int base)
 {
     struct _timespec64 ts64;
+
+    if(!MSVCRT_CHECK_PMT(ts != NULL)) return 0;
+    if(base != TIME_UTC) return 0;
 
     if(_timespec64_get(&ts64, base) != base)
         return 0;

@@ -19,9 +19,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-/* 0x0600 makes PROCESS_ALL_ACCESS not compatible with pre-Vista versions */
-#define _WIN32_WINNT 0x0500
-
 #include <stdarg.h>
 
 #include "ntstatus.h"
@@ -39,10 +36,11 @@
 #include "wine/test.h"
 
 static NTSTATUS (WINAPI *pNtQuerySystemInformation)(SYSTEM_INFORMATION_CLASS, PVOID, ULONG, PULONG);
-static NTSTATUS (WINAPI *pNtQueryVirtualMemory)(HANDLE, LPCVOID, ULONG, PVOID, SIZE_T, SIZE_T *);
+static NTSTATUS (WINAPI *pNtQueryVirtualMemory)(HANDLE, LPCVOID, MEMORY_INFORMATION_CLASS, PVOID, SIZE_T, SIZE_T *);
 static BOOL  (WINAPI *pIsWow64Process)(HANDLE, BOOL *);
 static BOOL  (WINAPI *pWow64DisableWow64FsRedirection)(void **);
 static BOOL  (WINAPI *pWow64RevertWow64FsRedirection)(void *);
+static BOOL  (WINAPI *pQueryWorkingSetEx)(HANDLE, PVOID, DWORD);
 
 static BOOL wow64;
 
@@ -53,6 +51,7 @@ static BOOL init_func_ptrs(void)
     pIsWow64Process = (void *)GetProcAddress(GetModuleHandleA("kernel32.dll"), "IsWow64Process");
     pWow64DisableWow64FsRedirection = (void *)GetProcAddress(GetModuleHandleA("kernel32.dll"), "Wow64DisableWow64FsRedirection");
     pWow64RevertWow64FsRedirection = (void *)GetProcAddress(GetModuleHandleA("kernel32.dll"), "Wow64RevertWow64FsRedirection");
+    pQueryWorkingSetEx = (void *)GetProcAddress(GetModuleHandleA("psapi.dll"), "QueryWorkingSetEx");
     return TRUE;
 }
 
@@ -385,7 +384,14 @@ static BOOL nt_get_mapped_file_name(HANDLE process, LPVOID addr, LPWSTR name, DW
 
     ret_len = 0xdeadbeef;
     status = pNtQueryVirtualMemory(process, addr, MemorySectionName, buf, buf_len, &ret_len);
+todo_wine
     ok(!status, "NtQueryVirtualMemory error %x\n", status);
+    /* FIXME: remove once Wine is fixed */
+    if (status)
+    {
+        HeapFree(GetProcessHeap(), 0, buf);
+        return FALSE;
+    }
 
     section_name = (MEMORY_SECTION_NAME *)buf;
     ok(ret_len == section_name->SectionFileName.MaximumLength + sizeof(*section_name), "got %lu, %u\n",
@@ -411,30 +417,31 @@ static void test_GetMappedFileName(void)
     char temp_path[MAX_PATH], file_name[MAX_PATH], map_name[MAX_PATH], device_name[MAX_PATH], drive[3];
     WCHAR map_nameW[MAX_PATH], nt_map_name[MAX_PATH];
     HANDLE hfile, hmap;
-    HANDLE current_process;
-
-    DuplicateHandle( GetCurrentProcess(), GetCurrentProcess(),
-                     GetCurrentProcess(), &current_process, 0, 0, DUPLICATE_SAME_ACCESS );
 
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(NULL, hMod, szMapPath, sizeof(szMapPath));
     ok(!ret, "GetMappedFileName should fail\n");
+todo_wine
     ok(GetLastError() == ERROR_INVALID_HANDLE, "expected error=ERROR_INVALID_HANDLE but got %d\n", GetLastError());
 
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(hpSR, hMod, szMapPath, sizeof(szMapPath));
     ok(!ret, "GetMappedFileName should fail\n");
+todo_wine
     ok(GetLastError() == ERROR_ACCESS_DENIED, "expected error=ERROR_ACCESS_DENIED but got %d\n", GetLastError());
 
     SetLastError( 0xdeadbeef );
     ret = GetMappedFileNameA(hpQI, hMod, szMapPath, sizeof(szMapPath));
+todo_wine
     ok( ret || broken(GetLastError() == ERROR_UNEXP_NET_ERR), /* win2k */
         "GetMappedFileNameA failed with error %u\n", GetLastError() );
     if (ret)
     {
         ok(ret == strlen(szMapPath), "szMapPath=\"%s\" ret=%d\n", szMapPath, ret);
+        todo_wine
         ok(szMapPath[0] == '\\', "szMapPath=\"%s\"\n", szMapPath);
         szMapBaseName = strrchr(szMapPath, '\\'); /* That's close enough for us */
+        todo_wine
         ok(szMapBaseName && *szMapBaseName, "szMapPath=\"%s\"\n", szMapPath);
         if (szMapBaseName)
         {
@@ -472,24 +479,29 @@ static void test_GetMappedFileName(void)
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(GetCurrentProcess(), base, map_name, 0);
     ok(!ret, "GetMappedFileName should fail\n");
+todo_wine
     ok(GetLastError() == ERROR_INVALID_PARAMETER || GetLastError() == ERROR_INSUFFICIENT_BUFFER,
        "wrong error %d\n", GetLastError());
 
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(GetCurrentProcess(), base, 0, sizeof(map_name));
     ok(!ret, "GetMappedFileName should fail\n");
+todo_wine
     ok(GetLastError() == ERROR_INVALID_PARAMETER, "expected ERROR_INVALID_PARAMETER, got %d\n", GetLastError());
 
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(GetCurrentProcess(), base, map_name, 1);
+todo_wine
     ok(ret == 1, "GetMappedFileName error %d\n", GetLastError());
     ok(!map_name[0] || broken(map_name[0] == device_name[0]) /* before win2k */, "expected 0, got %c\n", map_name[0]);
 
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(GetCurrentProcess(), base, map_name, sizeof(map_name));
+todo_wine {
     ok(ret, "GetMappedFileName error %d\n", GetLastError());
     ok(ret > strlen(device_name), "map_name should be longer than device_name\n");
     ok(memcmp(map_name, device_name, strlen(device_name)) == 0, "map name does not start with a device name: %s\n", map_name);
+}
 
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameW(GetCurrentProcess(), base, map_nameW, ARRAY_SIZE(map_nameW));
@@ -505,26 +517,17 @@ todo_wine {
     }
 
     SetLastError(0xdeadbeef);
-    ret = GetMappedFileNameW(current_process, base, map_nameW, sizeof(map_nameW)/sizeof(map_nameW[0]));
-    ok(ret, "GetMappedFileNameW error %d\n", GetLastError());
-    ok(ret > strlen(device_name), "map_name should be longer than device_name\n");
-
-    if (nt_get_mapped_file_name(current_process, base, nt_map_name, sizeof(nt_map_name)/sizeof(nt_map_name[0])))
-    {
-        ok(memcmp(map_nameW, nt_map_name, lstrlenW(map_nameW)) == 0, "map name does not start with a device name: %s\n", map_name);
-        WideCharToMultiByte(CP_ACP, 0, map_nameW, -1, map_name, MAX_PATH, NULL, NULL);
-        ok(memcmp(map_name, device_name, strlen(device_name)) == 0, "map name does not start with a device name: %s\n", map_name);
-    }
-
-    SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(GetCurrentProcess(), base + 0x2000, map_name, sizeof(map_name));
+todo_wine {
     ok(ret, "GetMappedFileName error %d\n", GetLastError());
     ok(ret > strlen(device_name), "map_name should be longer than device_name\n");
     ok(memcmp(map_name, device_name, strlen(device_name)) == 0, "map name does not start with a device name: %s\n", map_name);
+}
 
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(GetCurrentProcess(), base + 0x4000, map_name, sizeof(map_name));
     ok(!ret, "GetMappedFileName should fail\n");
+todo_wine
     ok(GetLastError() == ERROR_UNEXP_NET_ERR, "expected ERROR_UNEXP_NET_ERR, got %d\n", GetLastError());
 
     SetLastError(0xdeadbeef);
@@ -536,6 +539,7 @@ todo_wine
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(0, base, map_name, sizeof(map_name));
     ok(!ret, "GetMappedFileName should fail\n");
+todo_wine
     ok(GetLastError() == ERROR_INVALID_HANDLE, "expected ERROR_INVALID_HANDLE, got %d\n", GetLastError());
 
     UnmapViewOfFile(base);
@@ -554,9 +558,9 @@ todo_wine
     SetLastError(0xdeadbeef);
     ret = GetMappedFileNameA(GetCurrentProcess(), base, map_name, sizeof(map_name));
     ok(!ret, "GetMappedFileName should fail\n");
+todo_wine
     ok(GetLastError() == ERROR_FILE_INVALID, "expected ERROR_FILE_INVALID, got %d\n", GetLastError());
 
-    CloseHandle(current_process);
     UnmapViewOfFile(base);
     CloseHandle(hmap);
 }
@@ -600,8 +604,8 @@ static void test_GetProcessImageFileName(void)
     if(ret && ret1)
     {
         /* Windows returns 2*strlen-1 */
-        ok(ret >= strlen(szImgPath), "szImgPath=\"%s\" ret=%d\n", szImgPath, ret);
-        ok(!strcmp(szImgPath, szMapPath), "szImgPath=\"%s\" szMapPath=\"%s\"\n", szImgPath, szMapPath);
+        todo_wine ok(ret >= strlen(szImgPath), "szImgPath=\"%s\" ret=%d\n", szImgPath, ret);
+        todo_wine ok(!strcmp(szImgPath, szMapPath), "szImgPath=\"%s\" szMapPath=\"%s\"\n", szImgPath, szMapPath);
     }
 
     SetLastError(0xdeadbeef);
@@ -798,6 +802,98 @@ free_page:
     VirtualFree(addr, 0, MEM_RELEASE);
 }
 
+static void check_QueryWorkingSetEx(PVOID addr, const char *desc, DWORD expected_valid,
+                                    DWORD expected_protection, DWORD expected_shared, BOOL todo)
+{
+    PSAPI_WORKING_SET_EX_INFORMATION info;
+    BOOL ret;
+
+    memset(&info, 0x41, sizeof(info));
+    info.VirtualAddress = addr;
+    ret = pQueryWorkingSetEx(GetCurrentProcess(), &info, sizeof(info));
+    ok(ret, "QueryWorkingSetEx failed with %d\n", GetLastError());
+
+    todo_wine_if(todo)
+    ok(info.VirtualAttributes.Valid == expected_valid, "%s expected Valid=%u but got %u\n",
+        desc, expected_valid, info.VirtualAttributes.Valid);
+
+    todo_wine_if(todo)
+    ok(info.VirtualAttributes.Win32Protection == expected_protection, "%s expected Win32Protection=%u but got %u\n",
+        desc, expected_protection, info.VirtualAttributes.Win32Protection);
+
+    ok(info.VirtualAttributes.Node == 0, "%s expected Node=0 but got %u\n",
+        desc, info.VirtualAttributes.Node);
+    ok(info.VirtualAttributes.LargePage == 0, "%s expected LargePage=0 but got %u\n",
+        desc, info.VirtualAttributes.LargePage);
+
+    ok(info.VirtualAttributes.Shared == expected_shared || broken(!info.VirtualAttributes.Valid) /* w2003 */,
+        "%s expected Shared=%u but got %u\n", desc, expected_shared, info.VirtualAttributes.Shared);
+    if (info.VirtualAttributes.Valid && info.VirtualAttributes.Shared)
+        ok(info.VirtualAttributes.ShareCount > 0, "%s expected ShareCount > 0 but got %u\n",
+            desc, info.VirtualAttributes.ShareCount);
+    else
+        ok(info.VirtualAttributes.ShareCount == 0, "%s expected ShareCount == 0 but got %u\n",
+            desc, info.VirtualAttributes.ShareCount);
+}
+
+static void test_QueryWorkingSetEx(void)
+{
+    PVOID addr;
+    DWORD prot;
+    BOOL ret;
+
+    static char tmp_data[0x2000] = { 0x41 };
+
+    if (pQueryWorkingSetEx == NULL)
+    {
+        win_skip("QueryWorkingSetEx not found, skipping tests\n");
+        return;
+    }
+
+    addr = GetModuleHandleA(NULL);
+    check_QueryWorkingSetEx(addr, "exe", 1, PAGE_READONLY, 1, FALSE);
+
+    ret = VirtualProtect(addr, 0x1000, PAGE_NOACCESS, &prot);
+    ok(ret, "VirtualProtect failed with %d\n", GetLastError());
+    check_QueryWorkingSetEx(addr, "exe,noaccess", 0, 0, 1, FALSE);
+
+    ret = VirtualProtect(addr, 0x1000, prot, &prot);
+    ok(ret, "VirtualProtect failed with %d\n", GetLastError());
+    check_QueryWorkingSetEx(addr, "exe,readonly1", 0, 0, 1, TRUE);
+
+    *(volatile char *)addr;
+    check_QueryWorkingSetEx(addr, "exe,readonly2", 1, PAGE_READONLY, 1, FALSE);
+
+    ret = VirtualProtect(addr, 0x1000, PAGE_EXECUTE_READWRITE, &prot);
+    ok(ret, "VirtualProtect failed with %d\n", GetLastError());
+    check_QueryWorkingSetEx(addr, "exe,readonly2", 1, PAGE_READONLY, 1, FALSE);
+
+    addr = VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    ok(addr != NULL, "VirtualAlloc failed with %d\n", GetLastError());
+    check_QueryWorkingSetEx(addr, "valloc", 0, 0, 0, FALSE);
+
+    *(volatile char *)addr;
+    check_QueryWorkingSetEx(addr, "valloc,read", 1, PAGE_READWRITE, 0, FALSE);
+
+    *(volatile char *)addr = 0x42;
+    check_QueryWorkingSetEx(addr, "valloc,write", 1, PAGE_READWRITE, 0, FALSE);
+
+    ret = VirtualProtect(addr, 0x1000, PAGE_NOACCESS, &prot);
+    ok(ret, "VirtualProtect failed with %d\n", GetLastError());
+    check_QueryWorkingSetEx(addr, "valloc,noaccess", 0, 0, 0, FALSE);
+
+    ret = VirtualProtect(addr, 0x1000, prot, &prot);
+    ok(ret, "VirtualProtect failed with %d\n", GetLastError());
+    check_QueryWorkingSetEx(addr, "valloc,readwrite1", 0, 0, 0, TRUE);
+
+    *(volatile char *)addr;
+    check_QueryWorkingSetEx(addr, "valloc,readwrite2", 1, PAGE_READWRITE, 0, FALSE);
+
+    ret = VirtualFree(addr, 0, MEM_RELEASE);
+    ok(ret, "VirtualFree failed with %d\n", GetLastError());
+    check_QueryWorkingSetEx(addr, "valloc,free", FALSE, 0, 0, FALSE);
+}
+
 START_TEST(psapi_main)
 {
     DWORD pid = GetCurrentProcessId();
@@ -825,6 +921,7 @@ START_TEST(psapi_main)
     test_GetProcessImageFileName();
     test_GetModuleFileNameEx();
     test_GetModuleBaseName();
+    test_QueryWorkingSetEx();
     test_ws_functions();
 
     CloseHandle(hpSR);

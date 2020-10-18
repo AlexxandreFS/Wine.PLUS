@@ -18,16 +18,10 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-#include "wine/port.h"
-
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#ifdef HAVE_UNISTD_H
-# include <unistd.h>
-#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -201,7 +195,7 @@ static SEGPTR TASK_AllocThunk(void)
         if (!sel)  /* Allocate a new segment */
         {
             sel = GLOBAL_Alloc( GMEM_FIXED, FIELD_OFFSET( THUNKS, thunks[MIN_THUNKS] ),
-                                pTask->hPDB, WINE_LDT_FLAGS_CODE );
+                                pTask->hPDB, LDT_FLAGS_CODE );
             if (!sel) return 0;
             TASK_CreateThunks( sel, 0, MIN_THUNKS );
             pThunk->next = sel;
@@ -300,7 +294,7 @@ static TDB *TASK_Create( NE_MODULE *pModule, UINT16 cmdShow, LPCSTR cmdline, BYT
       /* Allocate a selector for the PDB */
 
     pTask->hPDB = GLOBAL_CreateBlock( GMEM_FIXED, &pTask->pdb, sizeof(PDB16),
-                                      hModule, WINE_LDT_FLAGS_DATA );
+                                      hModule, LDT_FLAGS_DATA );
 
       /* Fill the PDB */
 
@@ -341,7 +335,7 @@ static TDB *TASK_Create( NE_MODULE *pModule, UINT16 cmdShow, LPCSTR cmdline, BYT
       /* Allocate a code segment alias for the TDB */
 
     pTask->hCSAlias = GLOBAL_CreateBlock( GMEM_FIXED, pTask, sizeof(TDB),
-                                          pTask->hPDB, WINE_LDT_FLAGS_CODE );
+                                          pTask->hPDB, LDT_FLAGS_CODE );
 
       /* Default DTA overwrites command line */
 
@@ -630,7 +624,7 @@ void WINAPI InitTask16( CONTEXT *context )
 
     /* Initialize the INSTANCEDATA structure */
     pinstance = MapSL( MAKESEGPTR(CURRENT_DS, 0) );
-    pinstance->stackmin    = OFFSETOF(NtCurrentTeb()->SystemReserved1[0]) + sizeof( STACK16FRAME );
+    pinstance->stackmin    = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + sizeof( STACK16FRAME );
     pinstance->stackbottom = pinstance->stackmin; /* yup, that's right. Confused me too. */
     pinstance->stacktop    = ( pinstance->stackmin > LOWORD(context->Ebx) ?
                                pinstance->stackmin - LOWORD(context->Ebx) : 0 ) + 150;
@@ -1101,14 +1095,14 @@ void WINAPI SwitchStackTo16( WORD seg, WORD ptr, WORD top )
 
     if (!(pData = GlobalLock16( seg ))) return;
     TRACE("old=%04x:%04x new=%04x:%04x\n",
-          SELECTOROF( NtCurrentTeb()->SystemReserved1[0] ),
-          OFFSETOF( NtCurrentTeb()->SystemReserved1[0] ), seg, ptr );
+          SELECTOROF( NtCurrentTeb()->WOW32Reserved ),
+          OFFSETOF( NtCurrentTeb()->WOW32Reserved ), seg, ptr );
 
     /* Save the old stack */
 
     oldFrame = CURRENT_STACK16;
     /* pop frame + args and push bp */
-    pData->old_ss_sp   = (SEGPTR)NtCurrentTeb()->SystemReserved1[0] + sizeof(STACK16FRAME)
+    pData->old_ss_sp   = (SEGPTR)NtCurrentTeb()->WOW32Reserved + sizeof(STACK16FRAME)
                            + 2 * sizeof(WORD);
     *(WORD *)MapSL(pData->old_ss_sp) = oldFrame->bp;
     pData->stacktop    = top;
@@ -1122,7 +1116,7 @@ void WINAPI SwitchStackTo16( WORD seg, WORD ptr, WORD top )
      */
     copySize = oldFrame->bp - OFFSETOF(pData->old_ss_sp);
     copySize += 3 * sizeof(WORD) + sizeof(STACK16FRAME);
-    NtCurrentTeb()->SystemReserved1[0] = (void *)MAKESEGPTR( seg, ptr - copySize );
+    NtCurrentTeb()->WOW32Reserved = (void *)MAKESEGPTR( seg, ptr - copySize );
     newFrame = CURRENT_STACK16;
 
     /* Copy the stack frame and the local variables to the new stack */
@@ -1141,7 +1135,7 @@ void WINAPI SwitchStackBack16( CONTEXT *context )
     STACK16FRAME *oldFrame, *newFrame;
     INSTANCEDATA *pData;
 
-    if (!(pData = GlobalLock16(SELECTOROF(NtCurrentTeb()->SystemReserved1[0]))))
+    if (!(pData = GlobalLock16(SELECTOROF(NtCurrentTeb()->WOW32Reserved))))
         return;
     if (!pData->old_ss_sp)
     {
@@ -1160,7 +1154,7 @@ void WINAPI SwitchStackBack16( CONTEXT *context )
 
     /* Switch back to the old stack */
 
-    NtCurrentTeb()->SystemReserved1[0] = (void *)(pData->old_ss_sp - sizeof(STACK16FRAME));
+    NtCurrentTeb()->WOW32Reserved = (void *)(pData->old_ss_sp - sizeof(STACK16FRAME));
     context->SegSs = SELECTOROF(pData->old_ss_sp);
     context->Esp   = OFFSETOF(pData->old_ss_sp) - sizeof(DWORD); /*ret addr*/
     pData->old_ss_sp = 0;

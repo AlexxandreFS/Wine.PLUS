@@ -71,7 +71,7 @@ static BOOL write_resource_file(const char *path_tmp, const char *name_res, cons
 static BOOL compile_cs_to_dll(char *source_path, char *dest_path)
 {
     const char *path_csc = "C:\\windows\\Microsoft.NET\\Framework\\v2.0.50727\\csc.exe";
-    char cmdline[MAX_PATH];
+    char cmdline[2 * MAX_PATH + 74];
     char path_temp[MAX_PATH];
     PROCESS_INFORMATION pi;
     STARTUPINFOA si = { 0 };
@@ -315,7 +315,7 @@ static void run_child_process(const char *dll_source, run_type run)
     ret = CreateProcessA(exe, cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
     ok(ret, "Could not create process: %u\n", GetLastError());
 
-    winetest_wait_child_process(pi.hProcess);
+    wait_child_process(pi.hProcess);
 
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);

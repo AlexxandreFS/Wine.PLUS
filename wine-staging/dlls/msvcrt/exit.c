@@ -237,7 +237,7 @@ void CDECL _amsg_exit(int errnum)
      ((MSVCRT_error_mode == MSVCRT__OUT_TO_DEFAULT) && (MSVCRT_app_type == 2)))
   {
     char text[32];
-    sprintf(text, "Error: R60%d",errnum);
+    MSVCRT_sprintf(text, "Error: R60%d",errnum);
     DoMessageBox("Runtime error!", text);
   }
   else
@@ -305,7 +305,7 @@ void CDECL MSVCRT__wassert(const MSVCRT_wchar_t* str, const MSVCRT_wchar_t* file
     DoMessageBoxW(assertion_failed, text);
   }
   else
-    _cwprintf(format_console, str, file, line);
+    MSVCRT_fwprintf(MSVCRT_stderr, format_console, str, file, line);
 
   MSVCRT_raise(MSVCRT_SIGABRT);
   MSVCRT__exit(3);

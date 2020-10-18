@@ -364,8 +364,6 @@ jboolean motion_event( JNIEnv *env, jobject obj, jint win, jint action, jint x, 
 }
 
 
-extern void __wine_esync_set_queue_fd( int fd );
-
 /***********************************************************************
  *           init_event_queue
  */
@@ -379,7 +377,6 @@ static void init_event_queue(void)
         ERR( "could not create data\n" );
         ExitProcess(1);
     }
-    __wine_esync_set_queue_fd( event_pipe[0] );
     if (wine_server_fd_to_handle( event_pipe[0], GENERIC_READ | SYNCHRONIZE, 0, &handle ))
     {
         ERR( "Can't allocate handle for event fd\n" );
@@ -659,7 +656,7 @@ static void apply_line_region( DWORD *dst, int width, int x, int y, const RECT *
 /***********************************************************************
  *           android_surface_lock
  */
-static void android_surface_lock( struct window_surface *window_surface )
+static void CDECL android_surface_lock( struct window_surface *window_surface )
 {
     struct android_window_surface *surface = get_android_surface( window_surface );
 
@@ -669,7 +666,7 @@ static void android_surface_lock( struct window_surface *window_surface )
 /***********************************************************************
  *           android_surface_unlock
  */
-static void android_surface_unlock( struct window_surface *window_surface )
+static void CDECL android_surface_unlock( struct window_surface *window_surface )
 {
     struct android_window_surface *surface = get_android_surface( window_surface );
 
@@ -679,7 +676,7 @@ static void android_surface_unlock( struct window_surface *window_surface )
 /***********************************************************************
  *           android_surface_get_bitmap_info
  */
-static void *android_surface_get_bitmap_info( struct window_surface *window_surface, BITMAPINFO *info )
+static void *CDECL android_surface_get_bitmap_info( struct window_surface *window_surface, BITMAPINFO *info )
 {
     struct android_window_surface *surface = get_android_surface( window_surface );
 
@@ -690,7 +687,7 @@ static void *android_surface_get_bitmap_info( struct window_surface *window_surf
 /***********************************************************************
  *           android_surface_get_bounds
  */
-static RECT *android_surface_get_bounds( struct window_surface *window_surface )
+static RECT *CDECL android_surface_get_bounds( struct window_surface *window_surface )
 {
     struct android_window_surface *surface = get_android_surface( window_surface );
 
@@ -700,7 +697,7 @@ static RECT *android_surface_get_bounds( struct window_surface *window_surface )
 /***********************************************************************
  *           android_surface_set_region
  */
-static void android_surface_set_region( struct window_surface *window_surface, HRGN region )
+static void CDECL android_surface_set_region( struct window_surface *window_surface, HRGN region )
 {
     struct android_window_surface *surface = get_android_surface( window_surface );
 
@@ -724,7 +721,7 @@ static void android_surface_set_region( struct window_surface *window_surface, H
 /***********************************************************************
  *           android_surface_flush
  */
-static void android_surface_flush( struct window_surface *window_surface )
+static void CDECL android_surface_flush( struct window_surface *window_surface )
 {
     struct android_window_surface *surface = get_android_surface( window_surface );
     ANativeWindow_Buffer buffer;
@@ -807,7 +804,7 @@ static void android_surface_flush( struct window_surface *window_surface )
 /***********************************************************************
  *           android_surface_destroy
  */
-static void android_surface_destroy( struct window_surface *window_surface )
+static void CDECL android_surface_destroy( struct window_surface *window_surface )
 {
     struct android_window_surface *surface = get_android_surface( window_surface );
 

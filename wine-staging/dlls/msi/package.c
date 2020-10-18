@@ -27,6 +27,7 @@
 #include "winbase.h"
 #include "winreg.h"
 #include "winnls.h"
+#include "winternl.h"
 #include "shlwapi.h"
 #include "wingdi.h"
 #include "msi.h"
@@ -668,7 +669,7 @@ done:
 static VOID set_installer_properties(MSIPACKAGE *package)
 {
     WCHAR *ptr;
-    OSVERSIONINFOEXW OSVersion;
+    RTL_OSVERSIONINFOEXW OSVersion;
     MEMORYSTATUSEX msex;
     DWORD verval, len, type;
     WCHAR pth[MAX_PATH], verstr[11], bufstr[22];
@@ -860,9 +861,14 @@ static VOID set_installer_properties(MSIPACKAGE *package)
     msi_set_property( package->db, szPrivileged, szOne, -1 );
 
     /* set the os things */
-    OSVersion.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEXW);
-    GetVersionExW((OSVERSIONINFOW *)&OSVersion);
+    OSVersion.dwOSVersionInfoSize = sizeof(OSVersion);
+    RtlGetVersion(&OSVersion);
     verval = OSVersion.dwMinorVersion + OSVersion.dwMajorVersion * 100;
+    if (verval > 603)
+    {
+        verval = 603;
+        OSVersion.dwBuildNumber = 9600;
+    }
     len = swprintf( verstr, ARRAY_SIZE(verstr), szFormat, verval );
     switch (OSVersion.dwPlatformId)
     {
@@ -1209,7 +1215,7 @@ static enum platform parse_platform( const WCHAR *str )
     else if (!wcscmp( str, szX64 ) || !wcscmp( str, szAMD64 )) return PLATFORM_X64;
     else if (!wcscmp( str, szARM )) return PLATFORM_ARM;
     else if (!wcscmp( str, szARM64 )) return PLATFORM_ARM64;
-    return PLATFORM_UNKNOWN;
+    return PLATFORM_UNRECOGNIZED;
 }
 
 static UINT parse_suminfo( MSISUMMARYINFO *si, MSIPACKAGE *package )
@@ -1237,13 +1243,13 @@ static UINT parse_suminfo( MSISUMMARYINFO *si, MSIPACKAGE *package )
     platform = template;
     if ((q = wcschr( platform, ',' ))) *q = 0;
     package->platform = parse_platform( platform );
-    while (package->platform == PLATFORM_UNKNOWN && q)
+    while (package->platform == PLATFORM_UNRECOGNIZED && q)
     {
         platform = q + 1;
         if ((q = wcschr( platform, ',' ))) *q = 0;
         package->platform = parse_platform( platform );
     }
-    if (package->platform == PLATFORM_UNKNOWN)
+    if (package->platform == PLATFORM_UNRECOGNIZED)
     {
         WARN("unknown platform %s\n", debugstr_w(template));
         msi_free( template );

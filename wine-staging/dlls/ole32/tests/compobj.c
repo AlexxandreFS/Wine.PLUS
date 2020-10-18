@@ -72,15 +72,15 @@ DEFINE_EXPECT(PostUninitialize);
 /* functions that are not present on all versions of Windows */
 static HRESULT (WINAPI * pCoGetObjectContext)(REFIID riid, LPVOID *ppv);
 static HRESULT (WINAPI * pCoSwitchCallContext)(IUnknown *pObject, IUnknown **ppOldObject);
-static HRESULT (WINAPI * pCoGetTreatAsClass)(REFCLSID clsidOld, LPCLSID pClsidNew);
-static HRESULT (WINAPI * pCoTreatAsClass)(REFCLSID clsidOld, REFCLSID pClsidNew);
 static HRESULT (WINAPI * pCoGetContextToken)(ULONG_PTR *token);
 static HRESULT (WINAPI * pCoGetApartmentType)(APTTYPE *type, APTTYPEQUALIFIER *qualifier);
+static HRESULT (WINAPI * pCoIncrementMTAUsage)(CO_MTA_USAGE_COOKIE *cookie);
+static HRESULT (WINAPI * pCoDecrementMTAUsage)(CO_MTA_USAGE_COOKIE cookie);
 static LONG (WINAPI * pRegDeleteKeyExA)(HKEY, LPCSTR, REGSAM, DWORD);
 static LONG (WINAPI * pRegOverridePredefKey)(HKEY key, HKEY override);
+static HRESULT (WINAPI * pCoCreateInstanceFromApp)(REFCLSID clsid, IUnknown *outer, DWORD clscontext,
+        void *reserved, DWORD count, MULTI_QI *results);
 
-static BOOL   (WINAPI *pActivateActCtx)(HANDLE,ULONG_PTR*);
-static HANDLE (WINAPI *pCreateActCtxW)(PCACTCTXW);
 static BOOL   (WINAPI *pIsWow64Process)(HANDLE, LPBOOL);
 
 #define ok_ole_success(hr, func) ok(hr == S_OK, func " failed with error 0x%08x\n", hr)
@@ -240,8 +240,6 @@ static HANDLE activate_context(const char *manifest, ULONG_PTR *cookie)
     HANDLE handle;
     BOOL ret;
 
-    if (!pCreateActCtxW) return NULL;
-
     create_manifest_file("file.manifest", manifest);
 
     MultiByteToWideChar( CP_ACP, 0, "file.manifest", -1, path, MAX_PATH );
@@ -249,7 +247,7 @@ static HANDLE activate_context(const char *manifest, ULONG_PTR *cookie)
     actctx.cbSize = sizeof(ACTCTXW);
     actctx.lpSource = path;
 
-    handle = pCreateActCtxW(&actctx);
+    handle = CreateActCtxW(&actctx);
     ok(handle != INVALID_HANDLE_VALUE || broken(handle == INVALID_HANDLE_VALUE) /* some old XP/2k3 versions */,
         "handle == INVALID_HANDLE_VALUE, error %u\n", GetLastError());
     if (handle == INVALID_HANDLE_VALUE)
@@ -272,7 +270,7 @@ static HANDLE activate_context(const char *manifest, ULONG_PTR *cookie)
 
     if (handle)
     {
-        ret = pActivateActCtx(handle, cookie);
+        ret = ActivateActCtx(handle, cookie);
         ok(ret, "ActivateActCtx failed: %u\n", GetLastError());
     }
 
@@ -347,6 +345,32 @@ static const char actctx_manifest[] =
 "    >"
 "        <progid>clrprogid.1</progid>"
 "    </clrClass>"
+"</assembly>";
+
+static const char actctx_manifest2[] =
+"<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">"
+"<assemblyIdentity version=\"1.2.3.4\"  name=\"Wine.Test\" type=\"win32\""
+" publicKeyToken=\"6595b6414666f1df\" />"
+"<file name=\"testlib.dll\">"
+"    <comInterfaceProxyStub "
+"        name=\"Testiface7\""
+"        iid=\"{52222222-1234-1234-1234-56789abcdef0}\""
+"        proxyStubClsid32=\"{82222222-1234-1234-1234-56789abcdef0}\""
+"        threadingModel=\"Apartment\""
+"    />"
+"</file>"
+"<file name=\"testlib4.dll\">"
+"    <comInterfaceProxyStub "
+"        name=\"Testiface8\""
+"        iid=\"{92222222-1234-1234-1234-56789abcdef0}\""
+"        threadingModel=\"Apartment\""
+"    />"
+"</file>"
+"    <comInterfaceExternalProxyStub "
+"        name=\"Iifaceps3\""
+"        iid=\"{42222222-1234-1234-1234-56789abcdef0}\""
+"        proxyStubClsid32=\"{66666666-8888-7777-6666-555555555555}\""
+"    />"
 "</assembly>";
 
 DEFINE_GUID(CLSID_Testclass, 0x12345678, 0x1234, 0x1234, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0);
@@ -646,7 +670,8 @@ static void _test_apt_type(APTTYPE expected_type, APTTYPEQUALIFIER expected_qual
         return;
 
     hr = pCoGetApartmentType(&type, &qualifier);
-    ok_(__FILE__, line)(hr == S_OK || hr == CO_E_NOTINITIALIZED, "Unexpected return code: 0x%08x\n", hr);
+    ok_(__FILE__, line)(hr == S_OK || (type == APTTYPE_CURRENT && hr == CO_E_NOTINITIALIZED),
+            "Unexpected hr %#x.\n", hr);
     ok_(__FILE__, line)(type == expected_type, "Wrong apartment type %d, expected %d\n", type, expected_type);
     ok_(__FILE__, line)(qualifier == expected_qualifier, "Wrong apartment qualifier %d, expected %d\n", qualifier,
         expected_qualifier);
@@ -692,6 +717,28 @@ static void test_CoCreateInstance(void)
 
     test_apt_type(APTTYPE_CURRENT, APTTYPEQUALIFIER_NONE);
 }
+
+struct comclassredirect_data
+{
+    ULONG size;
+    ULONG flags;
+    DWORD model;
+    GUID  clsid;
+    GUID  alias;
+    GUID  clsid2;
+    GUID  tlid;
+    ULONG name_len;
+    ULONG name_offset;
+    ULONG progid_len;
+    ULONG progid_offset;
+    ULONG clrdata_len;
+    ULONG clrdata_offset;
+    DWORD miscstatus;
+    DWORD miscstatuscontent;
+    DWORD miscstatusthumbnail;
+    DWORD miscstatusicon;
+    DWORD miscstatusdocprint;
+};
 
 static void test_CoGetClassObject(void)
 {
@@ -760,6 +807,53 @@ static void test_CoGetClassObject(void)
 
         hr = CoGetClassObject(&IID_Testiface8, CLSCTX_INPROC_SERVER, NULL, &IID_IUnknown, (void **)&pUnk);
         ok(hr == REGDB_E_CLASSNOTREG, "Unexpected hr %#x.\n", hr);
+
+        deactivate_context(handle, cookie);
+    }
+
+    if ((handle = activate_context(actctx_manifest2, &cookie)))
+    {
+        struct comclassredirect_data *comclass;
+        ACTCTX_SECTION_KEYED_DATA data;
+        BOOL ret;
+
+        /* This one will load test dll and get back specific error code. */
+        hr = CoGetClassObject(&IID_Testiface7, CLSCTX_INPROC_SERVER, NULL, &IID_IUnknown, (void **)&pUnk);
+        ok(hr == 0x80001235 || broken(hr == HRESULT_FROM_WIN32(ERROR_MOD_NOT_FOUND)) /* winxp */, "Unexpected hr %#x.\n", hr);
+
+        hr = CoGetClassObject(&IID_Testiface8, CLSCTX_INPROC_SERVER, NULL, &IID_IUnknown, (void **)&pUnk);
+        ok(FAILED(hr), "Unexpected hr %#x.\n", hr);
+
+        memset(&data, 0, sizeof(data));
+        data.cbSize = sizeof(data);
+        ret = FindActCtxSectionGuid(0, NULL, ACTIVATION_CONTEXT_SECTION_COM_INTERFACE_REDIRECTION, &IID_Testiface8, &data);
+        ok(ret, "Section not found.\n");
+
+        memset(&data, 0, sizeof(data));
+        data.cbSize = sizeof(data);
+
+        /* External proxy-stubs are not accessible. */
+        ret = FindActCtxSectionGuid(0, NULL, ACTIVATION_CONTEXT_SECTION_COM_SERVER_REDIRECTION, &IID_Testiface3, &data);
+        ok(!ret, "Unexpected return value.\n");
+
+        ret = FindActCtxSectionGuid(0, NULL, ACTIVATION_CONTEXT_SECTION_COM_SERVER_REDIRECTION, &IID_TestPS, &data);
+        ok(!ret, "Unexpected return value.\n");
+
+        ret = FindActCtxSectionGuid(0, NULL, ACTIVATION_CONTEXT_SECTION_COM_SERVER_REDIRECTION, &IID_Testiface7, &data);
+        ok(ret, "Unexpected return value.\n");
+
+        ret = FindActCtxSectionGuid(0, NULL, ACTIVATION_CONTEXT_SECTION_COM_SERVER_REDIRECTION, &IID_Testiface4, &data);
+        ok(!ret, "Unexpected return value.\n");
+
+        ret = FindActCtxSectionGuid(0, NULL, ACTIVATION_CONTEXT_SECTION_COM_SERVER_REDIRECTION, &IID_Testiface8, &data);
+        ok(ret, "Unexpected return value.\n");
+
+        comclass = data.lpData;
+        if (comclass)
+        {
+            WCHAR *name = (WCHAR *)((char *)data.lpSectionBase + comclass->name_offset);
+            ok(!lstrcmpW(name, L"testlib4.dll"), "Unexpected module name %s.\n", wine_dbgstr_w(name));
+        }
 
         deactivate_context(handle, cookie);
     }
@@ -2094,21 +2188,15 @@ static void test_TreatAsClass(void)
     HKEY clsidkey, deadbeefkey;
     LONG lr;
 
-    if (!pCoGetTreatAsClass)
-    {
-        win_skip("CoGetTreatAsClass not present\n");
-        return;
-    }
-
-    hr = pCoGetTreatAsClass(&deadbeef,&out);
+    hr = CoGetTreatAsClass(&deadbeef,&out);
     ok (hr == S_FALSE, "expected S_FALSE got %x\n",hr);
     ok (IsEqualGUID(&out,&deadbeef), "expected to get same clsid back\n");
 
-    hr = pCoGetTreatAsClass(NULL, &out);
+    hr = CoGetTreatAsClass(NULL, &out);
     ok(hr == E_INVALIDARG, "expected E_INVALIDARG got %08x\n", hr);
     ok(IsEqualGUID(&out, &deadbeef), "expected no change to the clsid\n");
 
-    hr = pCoGetTreatAsClass(&deadbeef, NULL);
+    hr = CoGetTreatAsClass(&deadbeef, NULL);
     ok(hr == E_INVALIDARG, "expected E_INVALIDARG got %08x\n", hr);
 
     lr = RegOpenKeyExA(HKEY_CLASSES_ROOT, "CLSID", 0, KEY_READ, &clsidkey);
@@ -2121,17 +2209,17 @@ static void test_TreatAsClass(void)
         return;
     }
 
-    hr = pCoTreatAsClass(&deadbeef, &deadbeef);
+    hr = CoTreatAsClass(&deadbeef, &deadbeef);
     ok(hr == REGDB_E_WRITEREGDB, "CoTreatAsClass gave wrong error: %08x\n", hr);
 
-    hr = pCoTreatAsClass(&deadbeef, &CLSID_FileProtocol);
+    hr = CoTreatAsClass(&deadbeef, &CLSID_FileProtocol);
     if(hr == REGDB_E_WRITEREGDB){
         win_skip("Insufficient privileges to use CoTreatAsClass\n");
         goto exit;
     }
     ok(hr == S_OK, "CoTreatAsClass failed: %08x\n", hr);
 
-    hr = pCoGetTreatAsClass(&deadbeef, &out);
+    hr = CoGetTreatAsClass(&deadbeef, &out);
     ok(hr == S_OK, "CoGetTreatAsClass failed: %08x\n",hr);
     ok(IsEqualGUID(&out, &CLSID_FileProtocol), "expected to get substituted clsid\n");
 
@@ -2150,10 +2238,27 @@ static void test_TreatAsClass(void)
         pIP = NULL;
     }
 
-    hr = pCoTreatAsClass(&deadbeef, &CLSID_NULL);
+    if (pCoCreateInstanceFromApp)
+    {
+        MULTI_QI mqi = { 0 };
+
+        mqi.pIID = &IID_IInternetProtocol;
+        hr = pCoCreateInstanceFromApp(&deadbeef, NULL, CLSCTX_INPROC_SERVER, NULL, 1, &mqi);
+        ok(hr == REGDB_E_CLASSNOTREG, "Unexpected hr %#x.\n", hr);
+
+        hr = CoCreateInstance(&deadbeef, NULL, CLSCTX_INPROC_SERVER | CLSCTX_APPCONTAINER, &IID_IInternetProtocol,
+                (void **)&pIP);
+        ok(hr == REGDB_E_CLASSNOTREG, "Unexpected hr %#x.\n", hr);
+
+        hr = CoCreateInstance(&deadbeef, NULL, CLSCTX_INPROC_SERVER, &IID_IInternetProtocol, (void **)&pIP);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        IUnknown_Release(pIP);
+    }
+
+    hr = CoTreatAsClass(&deadbeef, &CLSID_NULL);
     ok(hr == S_OK, "CoTreatAsClass failed: %08x\n", hr);
 
-    hr = pCoGetTreatAsClass(&deadbeef, &out);
+    hr = CoGetTreatAsClass(&deadbeef, &out);
     ok(hr == S_FALSE, "expected S_FALSE got %08x\n", hr);
     ok(IsEqualGUID(&out, &deadbeef), "expected to get same clsid back\n");
 
@@ -3069,7 +3174,10 @@ static void test_CoWaitForMultipleHandles(void)
 static void test_CoGetMalloc(void)
 {
     IMalloc *imalloc;
+    SIZE_T size;
     HRESULT hr;
+    char *ptr;
+    int ret;
 
     if (0) /* crashes on native */
         hr = CoGetMalloc(0, NULL);
@@ -3103,6 +3211,32 @@ static void test_CoGetMalloc(void)
     hr = CoGetMalloc(MEMCTX_TASK, &imalloc);
     ok(hr == S_OK, "got 0x%08x\n", hr);
     ok(imalloc != NULL, "got %p\n", imalloc);
+
+    /* DidAlloc() */
+    ptr = IMalloc_Alloc(imalloc, 16);
+    ok(!!ptr, "Failed to allocate block.\n");
+
+    ret = IMalloc_DidAlloc(imalloc, ptr);
+    ok(ret == 1, "Unexpected return value %d.\n", ret);
+
+    ret = IMalloc_DidAlloc(imalloc, NULL);
+    ok(ret == -1, "Unexpected return value %d.\n", ret);
+
+    ret = IMalloc_DidAlloc(imalloc, (void *)0x1);
+    ok(ret == 0, "Unexpected return value %d.\n", ret);
+
+    ret = IMalloc_DidAlloc(imalloc, ptr + 4);
+    ok(ret == 0, "Unexpected return value %d.\n", ret);
+
+    /* GetSize() */
+    size = IMalloc_GetSize(imalloc, NULL);
+    ok(size == (SIZE_T)-1, "Unexpected return value.\n");
+
+    size = IMalloc_GetSize(imalloc, ptr);
+    ok(size == 16, "Unexpected return value.\n");
+
+    IMalloc_Free(imalloc, ptr);
+
     IMalloc_Release(imalloc);
 }
 
@@ -3814,15 +3948,14 @@ static void init_funcs(void)
 
     pCoGetObjectContext = (void*)GetProcAddress(hOle32, "CoGetObjectContext");
     pCoSwitchCallContext = (void*)GetProcAddress(hOle32, "CoSwitchCallContext");
-    pCoGetTreatAsClass = (void*)GetProcAddress(hOle32,"CoGetTreatAsClass");
-    pCoTreatAsClass = (void*)GetProcAddress(hOle32,"CoTreatAsClass");
     pCoGetContextToken = (void*)GetProcAddress(hOle32, "CoGetContextToken");
     pCoGetApartmentType = (void*)GetProcAddress(hOle32, "CoGetApartmentType");
+    pCoIncrementMTAUsage = (void*)GetProcAddress(hOle32, "CoIncrementMTAUsage");
+    pCoDecrementMTAUsage = (void*)GetProcAddress(hOle32, "CoDecrementMTAUsage");
+    pCoCreateInstanceFromApp = (void*)GetProcAddress(hOle32, "CoCreateInstanceFromApp");
     pRegDeleteKeyExA = (void*)GetProcAddress(hAdvapi32, "RegDeleteKeyExA");
     pRegOverridePredefKey = (void*)GetProcAddress(hAdvapi32, "RegOverridePredefKey");
 
-    pActivateActCtx = (void*)GetProcAddress(hkernel32, "ActivateActCtx");
-    pCreateActCtxW = (void*)GetProcAddress(hkernel32, "CreateActCtxW");
     pIsWow64Process = (void*)GetProcAddress(hkernel32, "IsWow64Process");
 }
 
@@ -3916,6 +4049,201 @@ static void test_CoGetCurrentProcess(void)
     ok(id2 && id2 != id, "Unexpected id from another thread.\n");
 }
 
+static void test_mta_usage(void)
+{
+    CO_MTA_USAGE_COOKIE cookie, cookie2;
+    HRESULT hr;
+
+    if (!pCoIncrementMTAUsage)
+    {
+        win_skip("CoIncrementMTAUsage() is not available.\n");
+        return;
+    }
+
+    test_apt_type(APTTYPE_CURRENT, APTTYPEQUALIFIER_NONE);
+
+    cookie = 0;
+    hr = pCoIncrementMTAUsage(&cookie);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(cookie != NULL, "Unexpected cookie %p.\n", cookie);
+
+    cookie2 = 0;
+    hr = pCoIncrementMTAUsage(&cookie2);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(cookie2 != NULL && cookie2 != cookie, "Unexpected cookie %p.\n", cookie2);
+
+    test_apt_type(APTTYPE_MTA, APTTYPEQUALIFIER_IMPLICIT_MTA);
+
+    hr = pCoDecrementMTAUsage(cookie);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    test_apt_type(APTTYPE_MTA, APTTYPEQUALIFIER_IMPLICIT_MTA);
+
+    hr = pCoDecrementMTAUsage(cookie2);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    test_apt_type(APTTYPE_CURRENT, APTTYPEQUALIFIER_NONE);
+}
+
+static void test_CoCreateInstanceFromApp(void)
+{
+    static const CLSID *supported_classes[] =
+    {
+        &CLSID_InProcFreeMarshaler,
+        &CLSID_GlobalOptions,
+        &CLSID_StdGlobalInterfaceTable,
+    };
+    static const CLSID *unsupported_classes[] =
+    {
+        &CLSID_ManualResetEvent,
+    };
+    unsigned int i;
+    IUnknown *unk;
+    DWORD cookie;
+    MULTI_QI mqi;
+    HRESULT hr;
+    HANDLE handle;
+    ULONG_PTR actctx_cookie;
+
+    if (!pCoCreateInstanceFromApp)
+    {
+        win_skip("CoCreateInstanceFromApp() is not available.\n");
+        return;
+    }
+
+    CoInitialize(NULL);
+
+    for (i = 0; i < ARRAY_SIZE(supported_classes); ++i)
+    {
+        memset(&mqi, 0, sizeof(mqi));
+        mqi.pIID = &IID_IUnknown;
+        hr = pCoCreateInstanceFromApp(supported_classes[i], NULL, CLSCTX_INPROC_SERVER, NULL, 1, &mqi);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        IUnknown_Release(mqi.pItf);
+
+        hr = CoCreateInstance(supported_classes[i], NULL, CLSCTX_INPROC_SERVER, &IID_IUnknown, (void **)&unk);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        IUnknown_Release(unk);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(unsupported_classes); ++i)
+    {
+        memset(&mqi, 0, sizeof(mqi));
+        mqi.pIID = &IID_IUnknown;
+        hr = pCoCreateInstanceFromApp(unsupported_classes[i], NULL, CLSCTX_INPROC_SERVER, NULL, 1, &mqi);
+        ok(hr == REGDB_E_CLASSNOTREG, "Unexpected hr %#x.\n", hr);
+
+        hr = CoCreateInstance(unsupported_classes[i], NULL, CLSCTX_INPROC_SERVER | CLSCTX_APPCONTAINER,
+                &IID_IUnknown, (void **)&unk);
+        ok(hr == REGDB_E_CLASSNOTREG, "Unexpected hr %#x.\n", hr);
+
+        hr = CoCreateInstance(unsupported_classes[i], NULL, CLSCTX_INPROC_SERVER, &IID_IUnknown, (void **)&unk);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        IUnknown_Release(unk);
+    }
+
+    /* Locally registered classes are filtered out. */
+    hr = CoRegisterClassObject(&CLSID_WineOOPTest, (IUnknown *)&Test_ClassFactory, CLSCTX_INPROC_SERVER,
+            REGCLS_MULTIPLEUSE, &cookie);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoGetClassObject(&CLSID_WineOOPTest, CLSCTX_INPROC_SERVER, NULL, &IID_IClassFactory, (void **)&unk);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoGetClassObject(&CLSID_WineOOPTest, CLSCTX_INPROC_SERVER | CLSCTX_APPCONTAINER, NULL,
+            &IID_IClassFactory, (void **)&unk);
+todo_wine
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+
+    hr = CoCreateInstance(&CLSID_WineOOPTest, NULL, CLSCTX_INPROC_SERVER, &IID_IUnknown, (void **)&unk);
+    ok(hr == E_NOINTERFACE, "Unexpected hr %#x.\n", hr);
+
+    hr = CoCreateInstance(&CLSID_WineOOPTest, NULL, CLSCTX_INPROC_SERVER | CLSCTX_APPCONTAINER,
+            &IID_IUnknown, (void **)&unk);
+    ok(hr == REGDB_E_CLASSNOTREG, "Unexpected hr %#x.\n", hr);
+
+    memset(&mqi, 0, sizeof(mqi));
+    mqi.pIID = &IID_IUnknown;
+    hr = pCoCreateInstanceFromApp(&CLSID_WineOOPTest, NULL, CLSCTX_INPROC_SERVER, NULL, 1, &mqi);
+    ok(hr == REGDB_E_CLASSNOTREG, "Unexpected hr %#x.\n", hr);
+
+    hr = CoRevokeClassObject(cookie);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    /* Activation context */
+    if ((handle = activate_context(actctx_manifest, &actctx_cookie)))
+    {
+        hr = CoCreateInstance(&IID_Testiface7, NULL, CLSCTX_INPROC_SERVER, &IID_IUnknown, (void **)&unk);
+        ok(hr == 0x80001235, "Unexpected hr %#x.\n", hr);
+
+        hr = CoCreateInstance(&IID_Testiface7, NULL, CLSCTX_INPROC_SERVER | CLSCTX_APPCONTAINER,
+                &IID_IUnknown, (void **)&unk);
+        ok(hr == 0x80001235, "Unexpected hr %#x.\n", hr);
+
+        deactivate_context(handle, actctx_cookie);
+    }
+
+    CoUninitialize();
+}
+
+static void test_call_cancellation(void)
+{
+    HRESULT hr;
+
+    /* Cancellation is disabled initially. */
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == CO_E_CANCEL_DISABLED, "Unexpected hr %#x.\n", hr);
+
+    hr = CoEnableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == CO_E_CANCEL_DISABLED, "Unexpected hr %#x.\n", hr);
+
+    hr = CoEnableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    /* Counter is not affected by initialization. */
+    hr = CoInitialize(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == CO_E_CANCEL_DISABLED, "Unexpected hr %#x.\n", hr);
+
+    hr = CoEnableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    CoUninitialize();
+
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == CO_E_CANCEL_DISABLED, "Unexpected hr %#x.\n", hr);
+
+    /* It's cumulative. */
+    hr = CoEnableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoEnableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = CoDisableCallCancellation(NULL);
+    ok(hr == CO_E_CANCEL_DISABLED, "Unexpected hr %#x.\n", hr);
+}
+
 START_TEST(compobj)
 {
     init_funcs();
@@ -3924,9 +4252,6 @@ START_TEST(compobj)
     SetCurrentDirectoryA(testlib);
     lstrcatA(testlib, "\\testlib.dll");
     extract_resource("testlib.dll", "TESTDLL", testlib);
-
-    if (!pCreateActCtxW)
-        win_skip("Activation contexts are not supported, some tests will be skipped.\n");
 
     test_ProgIDFromCLSID();
     test_CLSIDFromProgID();
@@ -3967,6 +4292,9 @@ START_TEST(compobj)
     test_GlobalOptions();
     test_implicit_mta();
     test_CoGetCurrentProcess();
+    test_mta_usage();
+    test_CoCreateInstanceFromApp();
+    test_call_cancellation();
 
     DeleteFileA( testlib );
 }

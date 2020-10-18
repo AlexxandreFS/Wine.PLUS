@@ -77,7 +77,7 @@ struct __wine_debug_channel
 #define __WINE_IS_DEBUG_ON(dbcl,dbch) \
   (__WINE_GET_DEBUGGING##dbcl(dbch) && (__wine_dbg_get_channel_flags(dbch) & (1 << __WINE_DBCL##dbcl)))
 
-#ifdef __GNUC__
+#if defined(__GNUC__) || defined(__clang__)
 
 #define __WINE_DPRINTF(dbcl,dbch) \
   do { if(__WINE_GET_DEBUGGING(dbcl,(dbch))) { \
@@ -88,7 +88,11 @@ struct __wine_debug_channel
 #define __WINE_DBG_LOG(args...) \
     wine_dbg_log( __dbcl, __dbch, __FUNCTION__, args); } } while(0)
 
+#if !defined(__WINE_USE_MSVCRT) || defined(__MINGW32__)
 #define __WINE_PRINTF_ATTR(fmt,args) __attribute__((format (printf,fmt,args)))
+#else
+#define __WINE_PRINTF_ATTR(fmt,args)
+#endif
 
 
 #ifdef WINE_NO_TRACE_MSGS
@@ -221,7 +225,9 @@ static inline const char *wine_dbgstr_an( const char *str, int n )
 
     if (!str) return "(null)";
     if (!((ULONG_PTR)str >> 16)) return wine_dbg_sprintf( "#%04x", LOWORD(str) );
+#ifndef WINE_UNIX_LIB
     if (IsBadStringPtrA( str, n )) return "(invalid)";
+#endif
     if (n == -1) for (n = 0; str[n]; n++) ;
     *dst++ = '"';
     while (n-- > 0 && dst <= buffer + sizeof(buffer) - 9)
@@ -263,7 +269,9 @@ static inline const char *wine_dbgstr_wn( const WCHAR *str, int n )
 
     if (!str) return "(null)";
     if (!((ULONG_PTR)str >> 16)) return wine_dbg_sprintf( "#%04x", LOWORD(str) );
+#ifndef WINE_UNIX_LIB
     if (IsBadStringPtrW( str, n )) return "(invalid)";
+#endif
     if (n == -1) for (n = 0; str[n]; n++) ;
     *dst++ = 'L';
     *dst++ = '"';

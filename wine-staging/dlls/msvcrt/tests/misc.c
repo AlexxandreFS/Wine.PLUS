@@ -22,7 +22,6 @@
 #include <errno.h>
 #include <stdio.h>
 #include <math.h>
-#include "msvcrt.h"
 #include <process.h>
 
 static inline BOOL almost_equal(double d1, double d2) {
@@ -33,14 +32,14 @@ static inline BOOL almost_equal(double d1, double d2) {
 
 static int (__cdecl *prand_s)(unsigned int *);
 static int (__cdecl *pI10_OUTPUT)(long double, int, int, void*);
-static int (__cdecl *pstrerror_s)(char *, MSVCRT_size_t, int);
+static int (__cdecl *pstrerror_s)(char *, size_t, int);
 static int (__cdecl *p_get_doserrno)(int *);
 static int (__cdecl *p_get_errno)(int *);
 static int (__cdecl *p_set_doserrno)(int);
 static int (__cdecl *p_set_errno)(int);
 static void (__cdecl *p__invalid_parameter)(const wchar_t*,
         const wchar_t*, const wchar_t*, unsigned int, uintptr_t);
-static void (__cdecl *p_qsort_s)(void*, MSVCRT_size_t, MSVCRT_size_t,
+static void (__cdecl *p_qsort_s)(void*, size_t, size_t,
         int (__cdecl*)(void*, const void*, const void*), void*);
 static double (__cdecl *p_atan)(double);
 static double (__cdecl *p_exp)(double);
@@ -241,7 +240,7 @@ static void test__get_doserrno(void)
     errno = EBADF;
     ret = p_get_doserrno(NULL);
     ok(ret == EINVAL, "Expected _get_doserrno to return EINVAL, got %d\n", ret);
-    ok(_doserrno == ERROR_INVALID_CMM, "Expected _doserrno to be ERROR_INVALID_CMM, got %d\n", _doserrno);
+    ok(_doserrno == ERROR_INVALID_CMM, "Expected _doserrno to be ERROR_INVALID_CMM, got %ld\n", _doserrno);
     ok(errno == EBADF, "Expected errno to be EBADF, got %d\n", errno);
 
     _doserrno = ERROR_INVALID_CMM;
@@ -288,19 +287,19 @@ static void test__set_doserrno(void)
     ret = p_set_doserrno(ERROR_FILE_NOT_FOUND);
     ok(ret == 0, "Expected _set_doserrno to return 0, got %d\n", ret);
     ok(_doserrno == ERROR_FILE_NOT_FOUND,
-       "Expected _doserrno to be ERROR_FILE_NOT_FOUND, got %d\n", _doserrno);
+       "Expected _doserrno to be ERROR_FILE_NOT_FOUND, got %ld\n", _doserrno);
 
     _doserrno = ERROR_INVALID_CMM;
     ret = p_set_doserrno(-1);
     ok(ret == 0, "Expected _set_doserrno to return 0, got %d\n", ret);
     ok(_doserrno == -1,
-       "Expected _doserrno to be -1, got %d\n", _doserrno);
+       "Expected _doserrno to be -1, got %ld\n", _doserrno);
 
     _doserrno = ERROR_INVALID_CMM;
     ret = p_set_doserrno(0xdeadbeef);
     ok(ret == 0, "Expected _set_doserrno to return 0, got %d\n", ret);
     ok(_doserrno == 0xdeadbeef,
-       "Expected _doserrno to be 0xdeadbeef, got %d\n", _doserrno);
+       "Expected _doserrno to be 0xdeadbeef, got %ld\n", _doserrno);
 }
 
 static void test__set_errno(void)

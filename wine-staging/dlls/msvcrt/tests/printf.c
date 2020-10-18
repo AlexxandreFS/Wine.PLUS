@@ -248,8 +248,8 @@ static void test_sprintf( void )
         { "%lld", "-8589934591", "1", ULONGLONG_ARG, 0, ((ULONGLONG)0xffffffff)*0xffffffff },
         { "%I32d", "1", "I32d", INT_ARG, 1 },
         { "%.0f", "-2", 0, DOUBLE_ARG, 0, 0, -1.5 },
-        { "%.0f", "-1", 0, TODO_FLAG | DOUBLE_ARG, 0, 0, -0.5 },
-        { "%.0f", "1", 0, TODO_FLAG | DOUBLE_ARG, 0, 0, 0.5 },
+        { "%.0f", "-1", 0, DOUBLE_ARG, 0, 0, -0.5 },
+        { "%.0f", "1", 0, DOUBLE_ARG, 0, 0, 0.5 },
         { "%.0f", "2", 0, DOUBLE_ARG, 0, 0, 1.5 },
         { "%.30f", "0.333333333333333310000000000000", 0, TODO_FLAG | DOUBLE_ARG, 0, 0, 1.0/3.0 },
         { "%.30lf", "1.414213562373095100000000000000", 0, TODO_FLAG | DOUBLE_ARG, 0, 0, sqrt(2) },
@@ -916,6 +916,11 @@ static void test_vswprintf(void)
     ret = _vswprintf_c_wrapper(buf, 20, format, number, 123);
     ok(ret == 10, "got %d, expected 10\n", ret);
     ok(!memcmp(buf, out, sizeof(out)), "buf = %s\n", wine_dbgstr_w(buf));
+
+    memset(buf, 'x', sizeof(buf));
+    ret = _vswprintf_c_wrapper(buf, 10, format, number, 123);
+    ok(ret == -1, "got %d, expected -1\n", ret);
+    ok(!wcscmp(buf, L"number 12"), "buf = %s\n", wine_dbgstr_w(buf));
 
     memset(buf, 0, sizeof(buf));
     ret = _vswprintf_c_l_wrapper(buf, 20, format, NULL, number, 123);

@@ -20,6 +20,7 @@
  */
 
 #include <stdarg.h>
+#include <stdlib.h>
 
 #include "windef.h"
 #include "winbase.h"
@@ -77,7 +78,7 @@ static BOOL get_size_from_inf(HINF layoutinf, WCHAR *filename, LONGLONG *size)
         return FALSE;
 
     /* FIXME: is there a atollW ? */
-    *size = wcstol(buffer);
+    *size = wcstol(buffer, NULL, 10);
     return TRUE;
 }
 

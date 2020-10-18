@@ -166,51 +166,47 @@ static HICON STATIC_SetIcon( HWND hwnd, HICON hicon, DWORD style )
 
 static HBITMAP create_alpha_bitmap( HBITMAP hbitmap )
 {
-    HBITMAP alpha = 0;
-    BITMAPINFO *info = NULL;
     BITMAP bm;
-    HDC src, dst;
+    HBITMAP alpha;
+    BITMAPINFO info;
+    HDC hdc;
     void *bits;
     DWORD i;
-    const unsigned char *ptr;
+    BYTE *ptr;
     BOOL has_alpha = FALSE;
 
-    if (!GetObjectW( hbitmap, sizeof(bm), &bm )) return 0;
+    GetObjectW( hbitmap, sizeof(bm), &bm );
     if (bm.bmBitsPixel != 32) return 0;
 
-    if (!(src = CreateCompatibleDC( 0 ))) return 0;
-    if (!(dst = CreateCompatibleDC( src ))) goto done;
-    if (!(info = HeapAlloc( GetProcessHeap(), 0, FIELD_OFFSET( BITMAPINFO, bmiColors[256] )))) goto done;
-    info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info->bmiHeader.biWidth = bm.bmWidth;
-    info->bmiHeader.biHeight = -bm.bmHeight;
-    info->bmiHeader.biPlanes = 1;
-    info->bmiHeader.biBitCount = 32;
-    info->bmiHeader.biCompression = BI_RGB;
-    info->bmiHeader.biSizeImage = bm.bmWidth * bm.bmHeight * 4;
-    info->bmiHeader.biXPelsPerMeter = 0;
-    info->bmiHeader.biYPelsPerMeter = 0;
-    info->bmiHeader.biClrUsed = 0;
-    info->bmiHeader.biClrImportant = 0;
-    if (!(alpha = CreateDIBSection( dst, info, DIB_RGB_COLORS, &bits, NULL, 0 ))) goto done;
+    if (!(hdc = CreateCompatibleDC( 0 ))) return 0;
 
-    SelectObject( src, hbitmap );
-    SelectObject( dst, alpha );
-    BitBlt(dst, 0, 0, bm.bmWidth, bm.bmHeight, src, 0, 0, SRCCOPY);
-
-    for (i = 0, ptr = bits; i < bm.bmWidth * bm.bmHeight; i++, ptr += 4)
-        if ((has_alpha = (ptr[3] != 0))) break;
-
-done:
-    DeleteDC( src );
-    DeleteDC( dst );
-    HeapFree( GetProcessHeap(), 0, info );
-
-    if (!has_alpha)
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = bm.bmWidth;
+    info.bmiHeader.biHeight = -bm.bmHeight;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    info.bmiHeader.biSizeImage = bm.bmWidth * bm.bmHeight * 4;
+    info.bmiHeader.biXPelsPerMeter = 0;
+    info.bmiHeader.biYPelsPerMeter = 0;
+    info.bmiHeader.biClrUsed = 0;
+    info.bmiHeader.biClrImportant = 0;
+    if ((alpha = CreateDIBSection( hdc, &info, DIB_RGB_COLORS, &bits, NULL, 0 )))
     {
-        DeleteObject( alpha );
-        alpha = 0;
+        GetDIBits( hdc, hbitmap, 0, bm.bmHeight, bits, &info, DIB_RGB_COLORS );
+
+        for (i = 0, ptr = bits; i < bm.bmWidth * bm.bmHeight; i++, ptr += 4)
+            if ((has_alpha = (ptr[3] != 0))) break;
+
+        if (!has_alpha)
+        {
+            DeleteObject( alpha );
+            alpha = 0;
+        }
     }
+
+    DeleteDC( hdc );
+
     return alpha;
 }
 
@@ -235,22 +231,24 @@ static HBITMAP STATIC_SetBitmap( HWND hwnd, HBITMAP hBitmap, DWORD style )
     if (!extra) return 0;
 
     hOldBitmap = extra->image.hbitmap;
-    alpha = create_alpha_bitmap( hBitmap );
-    if (alpha)
+    extra->image.hbitmap = hBitmap;
+    extra->image_has_alpha = FALSE;
+
+    if (hBitmap)
     {
-        extra->image.hbitmap = alpha;
-        extra->image_has_alpha = TRUE;
-    }
-    else
-    {
-        extra->image.hbitmap = hBitmap;
-        extra->image_has_alpha = FALSE;
+        alpha = create_alpha_bitmap( hBitmap );
+        if (alpha)
+        {
+            extra->image.hbitmap = alpha;
+            extra->image_has_alpha = TRUE;
+        }
     }
 
     if (hBitmap && !(style & SS_CENTERIMAGE) && !(style & SS_REALSIZECONTROL))
     {
         BITMAP bm;
         GetObjectW(hBitmap, sizeof(bm), &bm);
+
         /* Windows currently doesn't implement SS_RIGHTJUST */
         /*
         if ((style & SS_RIGHTJUST) != 0)

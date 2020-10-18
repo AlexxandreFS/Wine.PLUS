@@ -40,6 +40,12 @@
 #ifdef HAVE_POLL_H
 #include <poll.h>
 #endif
+#ifdef HAVE_ATTR_XATTR_H
+#undef XATTR_ADDITIONAL_OPTIONS
+#include <attr/xattr.h>
+#elif defined(HAVE_SYS_XATTR_H)
+#include <sys/xattr.h>
+#endif
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -52,6 +58,13 @@
 #include "request.h"
 #include "process.h"
 #include "security.h"
+
+#ifndef XATTR_USER_PREFIX
+#define XATTR_USER_PREFIX "user."
+#endif
+#ifndef XATTR_SIZE_MAX
+#define XATTR_SIZE_MAX    65536
+#endif
 
 /* We intentionally do not match the Samba 4 extended attribute for NT security descriptors (SDs):
  *  1) Samba stores this information using an internal data structure (we use a flat NT SD).
@@ -85,7 +98,6 @@ static struct list *file_get_kernel_obj_list( struct object *obj );
 static void file_destroy( struct object *obj );
 
 static int file_get_poll_events( struct fd *fd );
-static int file_flush( struct fd *fd, struct async *async );
 static enum server_fd_type file_get_fd_type( struct fd *fd );
 
 static const struct object_ops file_ops =
@@ -96,19 +108,18 @@ static const struct object_ops file_ops =
     add_queue,                    /* add_queue */
     remove_queue,                 /* remove_queue */
     default_fd_signaled,          /* signaled */
-    NULL,                         /* get_esync_fd */
     no_satisfied,                 /* satisfied */
     no_signal,                    /* signal */
     file_get_fd,                  /* get_fd */
     default_fd_map_access,        /* map_access */
     file_get_sd,                  /* get_sd */
     file_set_sd,                  /* set_sd */
+    no_get_full_name,             /* get_full_name */
     file_lookup_name,             /* lookup_name */
     no_link_name,                 /* link_name */
     NULL,                         /* unlink_name */
     file_open_file,               /* open_file */
     file_get_kernel_obj_list,     /* get_kernel_obj_list */
-    no_alloc_handle,              /* alloc_handle */
     fd_close_handle,              /* close_handle */
     file_destroy                  /* destroy */
 };
@@ -120,7 +131,7 @@ static const struct fd_ops file_fd_ops =
     file_get_fd_type,             /* get_fd_type */
     no_fd_read,                   /* read */
     no_fd_write,                  /* write */
-    file_flush,                   /* flush */
+    no_fd_flush,                  /* flush */
     default_fd_get_file_info,     /* get_file_info */
     no_fd_get_volume_info,        /* get_volume_info */
     default_fd_ioctl,             /* ioctl */
@@ -208,6 +219,44 @@ static struct object *create_file_obj( struct fd *fd, unsigned int access, mode_
                                          SACL_SECURITY_INFORMATION );
 
     return &file->obj;
+}
+
+int is_file_executable( const char *name )
+{
+    int len = strlen( name );
+    return len >= 4 && (!strcasecmp( name + len - 4, ".exe") || !strcasecmp( name + len - 4, ".com" ));
+}
+
+static int xattr_fget( int filedes, const char *name, void *value, size_t size )
+{
+#if defined(XATTR_ADDITIONAL_OPTIONS)
+    return fgetxattr( filedes, name, value, size, 0, 0 );
+#elif defined(HAVE_SYS_XATTR_H) || defined(HAVE_ATTR_XATTR_H)
+    return fgetxattr( filedes, name, value, size );
+#elif defined(HAVE_SYS_EXTATTR_H)
+    if (!xattr_valid_namespace( name )) return -1;
+    return extattr_get_fd( filedes, EXTATTR_NAMESPACE_USER, &name[XATTR_USER_PREFIX_LEN],
+                           value, size );
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+static int xattr_fset( int filedes, const char *name, void *value, size_t size )
+{
+#if defined(XATTR_ADDITIONAL_OPTIONS)
+    return fsetxattr( filedes, name, value, size, 0, 0 );
+#elif defined(HAVE_SYS_XATTR_H) || defined(HAVE_ATTR_XATTR_H)
+    return fsetxattr( filedes, name, value, size, 0 );
+#elif defined(HAVE_SYS_EXTATTR_H)
+    if (!xattr_valid_namespace( name )) return -1;
+    return extattr_set_fd( filedes, EXTATTR_NAMESPACE_USER, &name[XATTR_USER_PREFIX_LEN],
+                           value, size );
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
 }
 
 static void set_xattr_sd( int fd, const struct security_descriptor *sd )
@@ -412,8 +461,7 @@ static struct object *create_file( struct fd *root, const char *nameptr, data_si
     else
         mode = (attrs & FILE_ATTRIBUTE_READONLY) ? 0444 : 0666;
 
-    if (len >= 4 &&
-        (!strcasecmp( name + len - 4, ".exe" ) || !strcasecmp( name + len - 4, ".com" )))
+    if (is_file_executable( name ))
     {
         if (mode & S_IRUSR)
             mode |= S_IXUSR;
@@ -465,17 +513,6 @@ static int file_get_poll_events( struct fd *fd )
     if (file->access & FILE_UNIX_READ_ACCESS) events |= POLLIN;
     if (file->access & FILE_UNIX_WRITE_ACCESS) events |= POLLOUT;
     return events;
-}
-
-static int file_flush( struct fd *fd, struct async *async )
-{
-    int unix_fd = get_unix_fd( fd );
-    if (unix_fd != -1 && fsync( unix_fd ) == -1)
-    {
-        file_set_error();
-        return 0;
-    }
-    return 1;
 }
 
 static enum server_fd_type file_get_fd_type( struct fd *fd )
@@ -842,7 +879,7 @@ int set_file_sd( struct object *obj, struct fd *fd, mode_t *mode, uid_t *uid,
                 return 0;
             }
 
-            *mode = new_mode;
+            *mode = (*mode & S_IFMT) | new_mode;
         }
 
         /* extended attributes are set after the file mode, to ensure it stays in sync */

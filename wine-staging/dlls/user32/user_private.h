@@ -29,7 +29,6 @@
 #include "winreg.h"
 #include "winternl.h"
 #include "wine/heap.h"
-#include "wine/unicode.h"
 
 #define GET_WORD(ptr)  (*(const WORD *)(ptr))
 #define GET_DWORD(ptr) (*(const DWORD *)(ptr))
@@ -56,6 +55,7 @@ enum wine_internal_message
     WM_WINE_KEYBOARD_LL_HOOK,
     WM_WINE_MOUSE_LL_HOOK,
     WM_WINE_CLIPCURSOR,
+    WM_WINE_UPDATEWINDOWSTATE,
     WM_WINE_FIRST_DRIVER_MSG = 0x80001000,  /* range of messages reserved for the USER driver */
     WM_WINE_LAST_DRIVER_MSG = 0x80001fff
 };
@@ -171,7 +171,15 @@ struct wm_char_mapping_data
     MSG  get_msg;
 };
 
-#include <pshpack1.h>
+/* on windows the buffer capacity is quite large as well, enough to */
+/* hold up to 10s of 1kHz mouse rawinput events */
+#define RAWINPUT_BUFFER_SIZE (512*1024)
+
+struct rawinput_thread_data
+{
+    UINT     hw_id;     /* current rawinput message id */
+    RAWINPUT buffer[1]; /* rawinput message data buffer */
+};
 
 /* this is the structure stored in TEB->Win32ClientInfo */
 /* no attempt is made to keep the layout compatible with the Windows one */
@@ -193,16 +201,13 @@ struct user_thread_info
     DWORD                         GetMessageTimeVal;      /* Value for GetMessageTime */
     DWORD                         GetMessagePosVal;       /* Value for GetMessagePos */
     ULONG_PTR                     GetMessageExtraInfoVal; /* Value for GetMessageExtraInfo */
-    DWORD                         last_get_msg;           /* Last time of Get/PeekMessage call */
     struct user_key_state_info   *key_state;              /* Cache of global key state */
     HWND                          top_window;             /* Desktop window */
     HWND                          msg_window;             /* HWND_MESSAGE parent window */
-    RAWINPUT                     *rawinput;
+    struct rawinput_thread_data  *rawinput;               /* RawInput thread local data / buffer */
 };
 
 C_ASSERT( sizeof(struct user_thread_info) <= sizeof(((TEB *)0)->Win32ClientInfo) );
-
-#include <poppack.h>
 
 extern INT global_key_state_counter DECLSPEC_HIDDEN;
 extern BOOL (WINAPI *imm_register_window)(HWND) DECLSPEC_HIDDEN;
@@ -237,6 +242,10 @@ extern HMODULE user32_module DECLSPEC_HIDDEN;
 struct dce;
 struct tagWND;
 
+struct hardware_msg_data;
+extern BOOL rawinput_from_hardware_message(RAWINPUT *rawinput, const struct hardware_msg_data *msg_data);
+extern struct rawinput_thread_data *rawinput_thread_data(void);
+
 extern void CLIPBOARD_ReleaseOwner( HWND hwnd ) DECLSPEC_HIDDEN;
 extern BOOL FOCUS_MouseActivate( HWND hwnd ) DECLSPEC_HIDDEN;
 extern BOOL set_capture_window( HWND hwnd, UINT gui_flags, HWND *prev_ret ) DECLSPEC_HIDDEN;
@@ -251,6 +260,7 @@ extern void move_window_bits( HWND hwnd, struct window_surface *old_surface,
                               const RECT *window_rect, const RECT *valid_rects ) DECLSPEC_HIDDEN;
 extern void move_window_bits_parent( HWND hwnd, HWND parent, const RECT *window_rect,
                                      const RECT *valid_rects ) DECLSPEC_HIDDEN;
+extern void update_window_state( HWND hwnd ) DECLSPEC_HIDDEN;
 extern void *get_hook_proc( void *proc, const WCHAR *module, HMODULE *free_module ) DECLSPEC_HIDDEN;
 extern RECT get_virtual_screen_rect(void) DECLSPEC_HIDDEN;
 extern LRESULT call_current_hook( HHOOK hhook, INT code, WPARAM wparam, LPARAM lparam ) DECLSPEC_HIDDEN;
@@ -362,6 +372,12 @@ typedef struct
 extern int bitmap_info_size( const BITMAPINFO * info, WORD coloruse ) DECLSPEC_HIDDEN;
 extern BOOL get_icon_size( HICON handle, SIZE *size ) DECLSPEC_HIDDEN;
 
+struct png_funcs
+{
+    BOOL (CDECL *get_png_info)(const void *png_data, DWORD size, int *width, int *height, int *bpp);
+    BITMAPINFO * (CDECL *load_png)(const char *png_data, DWORD *size);
+};
+
 /* Mingw's assert() imports MessageBoxA and gets confused by user32 exporting it */
 #ifdef __MINGW32__
 #undef assert
@@ -373,7 +389,7 @@ static inline WCHAR *heap_strdupW(const WCHAR *src)
     WCHAR *dst;
     unsigned len;
     if (!src) return NULL;
-    len = (strlenW(src) + 1) * sizeof(WCHAR);
+    len = (lstrlenW(src) + 1) * sizeof(WCHAR);
     if ((dst = heap_alloc(len))) memcpy(dst, src, len);
     return dst;
 }

@@ -20,7 +20,6 @@
 
 #include "msvcrt.h"
 #include "winnls.h"
-#include "wine/unicode.h"
 
 /* Some abbreviations to make the following table readable */
 #define _C_ MSVCRT__CONTROL
@@ -50,6 +49,82 @@ WORD MSVCRT__ctype [257] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
+
+#if _MSVCR_VER <= 110
+# define B110 MSVCRT__BLANK
+#else
+# define B110 0
+#endif
+
+#if _MSVCR_VER == 120
+# define D120 0
+#else
+# define D120 4
+#endif
+
+#if _MSVCR_VER >= 140
+# define S140 MSVCRT__SPACE
+# define L140 MSVCRT__LOWER | 0x100
+# define C140 MSVCRT__CONTROL
+#else
+# define S140 0
+# define L140 0
+# define C140 0
+#endif
+WORD MSVCRT__wctype[257] =
+{
+    0,
+    /* 00 */
+    0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020,
+    0x0020, 0x0028 | B110, 0x0028, 0x0028, 0x0028, 0x0028, 0x0020, 0x0020,
+    /* 10 */
+    0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020,
+    0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020,
+    /* 20 */
+    0x0048, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+    0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+    /* 30 */
+    0x0084, 0x0084, 0x0084, 0x0084, 0x0084, 0x0084, 0x0084, 0x0084,
+    0x0084, 0x0084, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+    /* 40 */
+    0x0010, 0x0181, 0x0181, 0x0181, 0x0181, 0x0181, 0x0181, 0x0101,
+    0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101,
+    /* 50 */
+    0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101,
+    0x0101, 0x0101, 0x0101, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+    /* 60 */
+    0x0010, 0x0182, 0x0182, 0x0182, 0x0182, 0x0182, 0x0182, 0x0102,
+    0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102,
+    /* 70 */
+    0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102,
+    0x0102, 0x0102, 0x0102, 0x0010, 0x0010, 0x0010, 0x0010, 0x0020,
+    /* 80 */
+    0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020 | S140, 0x0020, 0x0020,
+    0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020,
+    /* 90 */
+    0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020,
+    0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020,
+    /* a0 */
+    0x0008 | B110, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+    0x0010, 0x0010, 0x0010 | L140, 0x0010, 0x0010, 0x0010 | C140, 0x0010, 0x0010,
+    /* b0 */
+    0x0010, 0x0010, 0x0010 | D120, 0x0010 | D120, 0x0010, 0x0010 | L140, 0x0010, 0x0010,
+    0x0010, 0x0010 | D120, 0x0010 | L140, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+    /* c0 */
+    0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101,
+    0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101,
+    /* d0 */
+    0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0010,
+    0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0101, 0x0102,
+    /* e0 */
+    0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102,
+    0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102,
+    /* f0 */
+    0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0010,
+    0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102, 0x0102
+};
+
+WORD *MSVCRT__pwctype = MSVCRT__wctype + 1;
 
 /*********************************************************************
  *		__p__pctype (MSVCRT.@)
@@ -245,6 +320,14 @@ int CDECL MSVCRT_ispunct(int c)
 }
 
 /*********************************************************************
+ *		_ispunct_l (MSVCR80.@)
+ */
+int CDECL MSVCRT__ispunct_l(int c, MSVCRT__locale_t locale)
+{
+  return MSVCRT__isctype_l( c, MSVCRT__PUNCT, locale );
+}
+
+/*********************************************************************
  *		_isspace_l (MSVCRT.@)
  */
 int CDECL MSVCRT__isspace_l(int c, MSVCRT__locale_t locale)
@@ -355,8 +438,7 @@ int CDECL MSVCRT___iscsymf(int c)
 int CDECL MSVCRT__toupper_l(int c, MSVCRT__locale_t locale)
 {
     MSVCRT_pthreadlocinfo locinfo;
-    unsigned char str[2], *p = str;
-    WCHAR wide, upper;
+    unsigned char str[2], *p = str, ret[2];
 
     if(!locale)
         locinfo = get_locinfo();
@@ -374,22 +456,15 @@ int CDECL MSVCRT__toupper_l(int c, MSVCRT__locale_t locale)
     }
     *p++ = c & 255;
 
-    if(!MultiByteToWideChar(locinfo->lc_codepage,
-                MB_ERR_INVALID_CHARS, (char*)str, p-str, &wide, 1))
-        return c;
-
-    upper = toupperW(wide);
-    if(upper == wide)
-        return str[0] + (str[1]<<8);
-
-    switch(WideCharToMultiByte(locinfo->lc_codepage, 0,
-                &upper, 1, (char*)str, 2, NULL, NULL)) {
+    switch(__crtLCMapStringA(locinfo->lc_handle[MSVCRT_LC_CTYPE], LCMAP_UPPERCASE,
+                (char*)str, p-str, (char*)ret, 2, locinfo->lc_codepage, 0))
+    {
     case 0:
         return c;
     case 1:
-        return str[0];
+        return ret[0];
     default:
-        return str[0] + (str[1]<<8);
+        return ret[0] + (ret[1]<<8);
     }
 }
 
@@ -417,8 +492,7 @@ int CDECL MSVCRT__toupper(int c)
 int CDECL MSVCRT__tolower_l(int c, MSVCRT__locale_t locale)
 {
     MSVCRT_pthreadlocinfo locinfo;
-    unsigned char str[2], *p = str;
-    WCHAR wide, lower;
+    unsigned char str[2], *p = str, ret[2];
 
     if(!locale)
         locinfo = get_locinfo();
@@ -436,22 +510,15 @@ int CDECL MSVCRT__tolower_l(int c, MSVCRT__locale_t locale)
     }
     *p++ = c & 255;
 
-    if(!MultiByteToWideChar(locinfo->lc_codepage,
-                MB_ERR_INVALID_CHARS, (char*)str, p-str, &wide, 1))
-        return c;
-
-    lower = tolowerW(wide);
-    if(lower == wide)
-        return str[0] + (str[1]<<8);
-
-    switch(WideCharToMultiByte(locinfo->lc_codepage, 0,
-                &lower, 1, (char*)str, 2, NULL, NULL)) {
+    switch(__crtLCMapStringA(locinfo->lc_handle[MSVCRT_LC_CTYPE], LCMAP_LOWERCASE,
+                (char*)str, p-str, (char*)ret, 2, locinfo->lc_codepage, 0))
+    {
     case 0:
         return c;
     case 1:
-        return str[0];
+        return ret[0];
     default:
-        return str[0] + (str[1]<<8);
+        return ret[0] + (ret[1]<<8);
     }
 }
 

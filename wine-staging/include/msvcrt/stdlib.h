@@ -8,17 +8,9 @@
 #ifndef __WINE_STDLIB_H
 #define __WINE_STDLIB_H
 
-#include <corecrt.h>
+#include <corecrt_wstdlib.h>
 
 #include <pshpack8.h>
-
-#ifndef NULL
-#ifdef __cplusplus
-#define NULL  0
-#else
-#define NULL  ((void*)0)
-#endif
-#endif
 
 typedef struct
 {
@@ -89,7 +81,7 @@ typedef struct _lldiv_t {
 extern "C" {
 #endif
 
-#ifdef __i386__
+#if defined(__i386__) || defined(_UCRT)
 
 extern unsigned int* __cdecl __p__osver(void);
 #define _osver             (*__p__osver())
@@ -144,7 +136,10 @@ errno_t       __cdecl _get_errno(int*);
 errno_t       __cdecl _set_doserrno(int);
 errno_t       __cdecl _set_errno(int);
 
+#ifndef _CRT_ONEXIT_T_DEFINED
+#define _CRT_ONEXIT_T_DEFINED
 typedef int (__cdecl *_onexit_t)(void);
+#endif
 
 
 int           __cdecl _atodbl(_CRT_DOUBLE*,char*);
@@ -180,16 +175,15 @@ int           __cdecl _set_error_mode(int);
 void          __cdecl _seterrormode(int);
 void          __cdecl _sleep(__msvcrt_ulong);
 void          __cdecl _splitpath(const char*,char*,char*,char*,char*);
-long double   __cdecl _strtold(const char*,char**);
 void          __cdecl _swab(char*,char*,int);
 char*         __cdecl _ui64toa(unsigned __int64,char*,int);
 errno_t       __cdecl _ui64toa_s(unsigned __int64,char*,size_t,int);
 char*         __cdecl _ultoa(__msvcrt_ulong,char*,int);
 errno_t       __cdecl _ultoa_s(__msvcrt_ulong,char*,size_t,int);
 
-void          __cdecl _Exit(int) DECLSPEC_NORETURN;
-void          __cdecl _exit(int) DECLSPEC_NORETURN;
-void          __cdecl abort(void) DECLSPEC_NORETURN;
+_ACRTIMP DECLSPEC_NORETURN void __cdecl _Exit(int);
+_ACRTIMP DECLSPEC_NORETURN void __cdecl _exit(int);
+_ACRTIMP DECLSPEC_NORETURN void __cdecl abort(void);
 int           __cdecl abs(int);
 int           __cdecl atexit(void (__cdecl *)(void));
 double        __cdecl atof(const char*);
@@ -203,7 +197,7 @@ div_t  __cdecl div(int,int);
 ldiv_t __cdecl ldiv(__msvcrt_long,__msvcrt_long);
 #endif
 lldiv_t       __cdecl lldiv(__int64,__int64);
-void          __cdecl exit(int) DECLSPEC_NORETURN;
+_ACRTIMP DECLSPEC_NORETURN void __cdecl exit(int);
 void          __cdecl free(void*);
 char*         __cdecl getenv(const char*);
 __msvcrt_long __cdecl labs(__msvcrt_long);
@@ -217,11 +211,14 @@ void*         __cdecl realloc(void*,size_t);
 void          __cdecl srand(unsigned int);
 float         __cdecl strtof(const char*,char**);
 double        __cdecl strtod(const char*,char**);
-double        __cdecl strtold(const char*,char**);
 __msvcrt_long __cdecl strtol(const char*,char**,int);
 __msvcrt_ulong __cdecl strtoul(const char*,char**,int);
 __int64       __cdecl strtoll_l(const char*,char**,int,_locale_t);
 unsigned __int64 __cdecl strtoull_l(const char*,char**,int,_locale_t);
+__int64       __cdecl strtoimax(const char*,char**,int);
+__int64       __cdecl strtoimax_l(const char*,char**,int,_locale_t);
+unsigned __int64 __cdecl strtoumax(const char*,char**,int);
+unsigned __int64 __cdecl strtoumax_l(const char*,char**,int,_locale_t);
 __int64       __cdecl _strtoi64(const char*,char**,int);
 __int64       __cdecl _strtoi64_l(const char*,char**,int,_locale_t);
 unsigned __int64 __cdecl _strtoui64(const char*,char**,int);
@@ -230,55 +227,18 @@ int           __cdecl system(const char*);
 void*         __cdecl bsearch(const void*,const void*,size_t,size_t,int (__cdecl *)(const void*,const void*));
 void          __cdecl qsort(void*,size_t,size_t,int (__cdecl *)(const void*,const void*));
 
-#ifndef _WSTDLIB_DEFINED
-#define _WSTDLIB_DEFINED
-wchar_t*      __cdecl _itow(int,wchar_t*,int);
-errno_t       __cdecl _itow_s(int,wchar_t*,int, int);
-wchar_t*      __cdecl _i64tow(__int64,wchar_t*,int);
-errno_t       __cdecl _i64tow_s(__int64, wchar_t*, size_t, int);
-wchar_t*      __cdecl _ltow(__msvcrt_long,wchar_t*,int);
-errno_t       __cdecl _ltow_s(__msvcrt_long,wchar_t*,int,int);
-wchar_t*      __cdecl _ui64tow(unsigned __int64,wchar_t*,int);
-errno_t       __cdecl _ui64tow_s(unsigned __int64, wchar_t*, size_t, int);
-wchar_t*      __cdecl _ultow(__msvcrt_ulong,wchar_t*,int);
-errno_t       __cdecl _ultow_s(__msvcrt_ulong, wchar_t*, size_t, int);
-wchar_t*      __cdecl _wfullpath(wchar_t*,const wchar_t*,size_t);
-wchar_t*      __cdecl _wgetenv(const wchar_t*);
-void          __cdecl _wmakepath(wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*);
-int           __cdecl _wmakepath_s(wchar_t*,size_t,const wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*);
-void          __cdecl _wperror(const wchar_t*);
-int           __cdecl _wputenv(const wchar_t*);
-void          __cdecl _wsearchenv(const wchar_t*,const wchar_t*,wchar_t*);
-void          __cdecl _wsplitpath(const wchar_t*,wchar_t*,wchar_t*,wchar_t*,wchar_t*);
-errno_t       __cdecl _wsplitpath_s(const wchar_t*,wchar_t*,size_t,wchar_t*,size_t,
-                                       wchar_t*,size_t,wchar_t*,size_t);
-int           __cdecl _wsystem(const wchar_t*);
-double        __cdecl _wtof(const wchar_t*);
-int           __cdecl _wtoi(const wchar_t*);
-__int64       __cdecl _wtoi64(const wchar_t*);
-__msvcrt_long __cdecl _wtol(const wchar_t*);
-
-size_t        __cdecl mbstowcs(wchar_t*,const char*,size_t);
-errno_t       __cdecl mbstowcs_s(size_t*,wchar_t*,size_t,const char*,size_t);
-int           __cdecl mbtowc(wchar_t*,const char*,size_t);
-float         __cdecl wcstof(const wchar_t*,wchar_t**);
-double        __cdecl wcstod(const wchar_t*,wchar_t**);
-__msvcrt_long __cdecl wcstol(const wchar_t*,wchar_t**,int);
-size_t        __cdecl wcstombs(char*,const wchar_t*,size_t);
-errno_t       __cdecl wcstombs_s(size_t*,char*,size_t,const wchar_t*,size_t);
-__msvcrt_ulong __cdecl wcstoul(const wchar_t*,wchar_t**,int);
-int           __cdecl wctomb(char*,wchar_t);
-__int64       __cdecl _wcstoi64(const wchar_t*,wchar_t**,int);
-__int64       __cdecl _wcstoi64_l(const wchar_t*,wchar_t**,int,_locale_t);
-unsigned __int64 __cdecl _wcstoui64(const wchar_t*,wchar_t**,int);
-unsigned __int64 __cdecl _wcstoui64_l(const wchar_t*,wchar_t**,int,_locale_t);
-#endif /* _WSTDLIB_DEFINED */
-
 typedef void (__cdecl *_invalid_parameter_handler)(const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t);
 _invalid_parameter_handler __cdecl _set_invalid_parameter_handler(_invalid_parameter_handler);
 _invalid_parameter_handler __cdecl _get_invalid_parameter_handler(void);
+_ACRTIMP _invalid_parameter_handler __cdecl _get_thread_local_invalid_parameter_handler(void);
+_ACRTIMP _invalid_parameter_handler __cdecl _set_thread_local_invalid_parameter_handler(_invalid_parameter_handler);
 void __cdecl _invalid_parameter(const wchar_t *expr, const wchar_t *func, const wchar_t *file,
                                 unsigned int line, uintptr_t arg);
+
+#ifdef _UCRT
+_ACRTIMP double __cdecl _strtold_l(const char*,char**,_locale_t);
+static inline long double strtold(const char *string, char **endptr) { return _strtold_l(string, endptr, NULL); }
+#endif /* _UCRT */
 
 #ifdef __cplusplus
 }

@@ -204,10 +204,10 @@ HRESULT JSGlobal_eval(script_ctx_t *ctx, vdisp_t *jsthis, WORD flags, unsigned a
         return E_OUTOFMEMORY;
 
     TRACE("parsing %s\n", debugstr_jsval(argv[0]));
-    hres = compile_script(ctx, src, NULL, NULL, TRUE, FALSE, &code);
+    hres = compile_script(ctx, src, 0, 0, NULL, NULL, TRUE, FALSE, frame ? frame->bytecode->named_item : NULL, &code);
     if(FAILED(hres)) {
         WARN("parse (%s) failed: %08x\n", debugstr_jsval(argv[0]), hres);
-        return throw_syntax_error(ctx, hres, NULL);
+        return hres;
     }
 
     if(!frame || (frame->flags & EXEC_GLOBAL))
@@ -215,7 +215,7 @@ HRESULT JSGlobal_eval(script_ctx_t *ctx, vdisp_t *jsthis, WORD flags, unsigned a
     if(flags & DISPATCH_JSCRIPT_CALLEREXECSSOURCE)
         exec_flags |= EXEC_RETURN_TO_INTERP;
     hres = exec_source(ctx, exec_flags, code, &code->global_code, frame ? frame->scope : NULL,
-            frame ? frame->this_obj : NULL, NULL, frame ? frame->variable_obj : ctx->global, 0, NULL, r);
+            frame ? frame->this_obj : NULL, NULL, 0, NULL, r);
     release_bytecode(code);
     return hres;
 }
@@ -632,7 +632,7 @@ static HRESULT JSGlobal_encodeURI(script_ctx_t *ctx, vdisp_t *jsthis, WORD flags
             i = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, ptr, 1, NULL, 0, NULL, NULL)*3;
             if(!i) {
                 jsstr_release(str);
-                return throw_uri_error(ctx, JS_E_INVALID_URI_CHAR, NULL);
+                return JS_E_INVALID_URI_CHAR;
             }
 
             len += i;
@@ -710,7 +710,7 @@ static HRESULT JSGlobal_decodeURI(script_ctx_t *ctx, vdisp_t *jsthis, WORD flags
 
             if(!res) {
                 jsstr_release(str);
-                return throw_uri_error(ctx, JS_E_INVALID_URI_CODING, NULL);
+                return JS_E_INVALID_URI_CODING;
             }
 
             ptr += i*3+2;
@@ -783,7 +783,7 @@ static HRESULT JSGlobal_encodeURIComponent(script_ctx_t *ctx, vdisp_t *jsthis, W
             size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, ptr, 1, NULL, 0, NULL, NULL);
             if(!size) {
                 jsstr_release(str);
-                return throw_uri_error(ctx, JS_E_INVALID_URI_CHAR, NULL);
+                return JS_E_INVALID_URI_CHAR;
             }
             len += size*3;
         }

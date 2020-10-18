@@ -152,7 +152,7 @@ BOOL WINAPI CRYPT_AsnEncodePubKeyInfoNoNull(DWORD dwCertEncodingType,
  */
 HCRYPTPROV WINAPI I_CryptGetDefaultCryptProv(ALG_ID);
 
-HINSTANCE hInstance DECLSPEC_HIDDEN;
+extern HINSTANCE hInstance DECLSPEC_HIDDEN;
 
 void crypt_oid_init(void) DECLSPEC_HIDDEN;
 void crypt_oid_free(void) DECLSPEC_HIDDEN;
@@ -377,6 +377,14 @@ BOOL CRYPT_ReadSerializedStoreFromBlob(const CRYPT_DATA_BLOB *blob,
  * appropriate memory locations.
  */
 void CRYPT_FixKeyProvInfoPointers(PCRYPT_KEY_PROV_INFO info) DECLSPEC_HIDDEN;
+
+struct store_CERT_KEY_CONTEXT
+{
+    DWORD   cbSize;
+    DWORD64 hCryptProv;
+    DWORD   dwKeySpec;
+};
+void CRYPT_ConvertKeyContext(const struct store_CERT_KEY_CONTEXT *src, CERT_KEY_CONTEXT *dst) DECLSPEC_HIDDEN;
 
 /**
  *  String functions

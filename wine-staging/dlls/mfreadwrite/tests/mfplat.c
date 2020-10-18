@@ -438,11 +438,13 @@ static struct test_media_stream *create_test_stream(DWORD stream_index, IMFMedia
     struct test_media_stream *stream;
     IMFPresentationDescriptor *pd;
     BOOL selected;
+    HRESULT hr;
 
     stream = heap_alloc_zero(sizeof(*stream));
     stream->IMFMediaStream_iface.lpVtbl = &test_media_stream_vtbl;
     stream->refcount = 1;
-    MFCreateEventQueue(&stream->event_queue);
+    hr = MFCreateEventQueue(&stream->event_queue);
+    ok(hr == S_OK, "Failed to create event queue, hr %#x.\n", hr);
     stream->source = source;
     IMFMediaSource_AddRef(stream->source);
     stream->is_new = TRUE;
@@ -847,17 +849,13 @@ static void test_source_reader_from_media_source(void)
 
     hr = IMFSourceReader_ReadSample(reader, MF_SOURCE_READER_ANY_STREAM, 0, &actual_index, &stream_flags,
             &timestamp, &sample);
-todo_wine {
     ok(hr == S_OK, "Failed to get a sample, hr %#x.\n", hr);
-    if (SUCCEEDED(hr))
-    {
-        ok(actual_index == 1, "Unexpected stream index %u\n", actual_index);
-        ok(!stream_flags, "Unexpected stream flags %#x.\n", stream_flags);
-        ok(timestamp == 123, "Unexpected timestamp.\n");
-        ok(!!sample, "Expected sample object.\n");
-        IMFSample_Release(sample);
-    }
-}
+    ok(actual_index == 1, "Unexpected stream index %u\n", actual_index);
+    ok(!stream_flags, "Unexpected stream flags %#x.\n", stream_flags);
+    ok(timestamp == 123, "Unexpected timestamp.\n");
+    ok(!!sample, "Expected sample object.\n");
+    IMFSample_Release(sample);
+
     hr = IMFSourceReader_SetStreamSelection(reader, 0, TRUE);
     ok(hr == S_OK, "Failed to select a stream, hr %#x.\n", hr);
 
@@ -868,17 +866,32 @@ todo_wine {
     {
         hr = IMFSourceReader_ReadSample(reader, MF_SOURCE_READER_ANY_STREAM, 0, &actual_index, &stream_flags,
                 &timestamp, &sample);
-todo_wine
         ok(hr == S_OK, "Failed to get a sample, hr %#x.\n", hr);
-        if (SUCCEEDED(hr))
-        {
-            ok(actual_index == (i < TEST_SOURCE_NUM_STREAMS ? i : 0), "%d: Unexpected stream index %u\n",
-                    i, actual_index);
-            ok(!stream_flags, "Unexpected stream flags %#x.\n", stream_flags);
-            ok(timestamp == 123, "Unexpected timestamp.\n");
-            ok(!!sample, "Expected sample object.\n");
-            IMFSample_Release(sample);
-        }
+        ok(actual_index == (i < TEST_SOURCE_NUM_STREAMS ? i : 0), "%d: Unexpected stream index %u\n",
+                i, actual_index);
+        ok(!stream_flags, "Unexpected stream flags %#x.\n", stream_flags);
+        ok(timestamp == 123, "Unexpected timestamp.\n");
+        ok(!!sample, "Expected sample object.\n");
+        IMFSample_Release(sample);
+    }
+
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, FALSE);
+    ok(hr == S_OK, "Failed to select a stream, hr %#x.\n", hr);
+
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, TRUE);
+    ok(hr == S_OK, "Failed to select a stream, hr %#x.\n", hr);
+
+    for (i = 0; i < 2 * TEST_SOURCE_NUM_STREAMS; ++i)
+    {
+        hr = IMFSourceReader_ReadSample(reader, MF_SOURCE_READER_ANY_STREAM, 0, &actual_index, &stream_flags,
+                &timestamp, &sample);
+        ok(hr == S_OK, "Failed to get a sample, hr %#x.\n", hr);
+        ok(actual_index == (i < TEST_SOURCE_NUM_STREAMS ? i : 0), "%d: Unexpected stream index %u\n",
+                i, actual_index);
+        ok(!stream_flags, "Unexpected stream flags %#x.\n", stream_flags);
+        ok(timestamp == 123, "Unexpected timestamp.\n");
+        ok(!!sample, "Expected sample object.\n");
+        IMFSample_Release(sample);
     }
 
     IMFSourceReader_Release(reader);
@@ -950,6 +963,13 @@ todo_wine
 
     hr = IMFSourceReader_ReadSample(reader, 0, 0, NULL, NULL, NULL, &sample);
     ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+
+    /* Flush() arguments validation. */
+    hr = IMFSourceReader_Flush(reader, 123);
+    ok(hr == MF_E_INVALIDSTREAMNUMBER, "Unexpected hr %#x.\n", hr);
+
+    hr = IMFSourceReader_ReadSample(reader, 0, 0, NULL, NULL, NULL, NULL);
+    ok(hr == MF_E_NOTACCEPTING, "Unexpected hr %#x.\n", hr);
 
     IMFSourceReader_Release(reader);
 }

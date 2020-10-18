@@ -21,9 +21,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-#include "wine/port.h"
-
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -31,7 +28,6 @@
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include "windef.h"
-#include "wine/unicode.h"
 #include "wine/debug.h"
 #include "ntdll_misc.h"
 #include "ddk/wdm.h"
@@ -185,7 +181,7 @@ static const RTL_OSVERSIONINFOEXW VersionData[NB_WINDOWS_VERSIONS] =
     },
     /* WIN10 */
     {
-        sizeof(RTL_OSVERSIONINFOEXW), 10, 0, 0x42EE, VER_PLATFORM_WIN32_NT,
+        sizeof(RTL_OSVERSIONINFOEXW), 10, 0, 0x4563, VER_PLATFORM_WIN32_NT,
         {0}, 0, 0, VER_SUITE_SINGLEUSERTS, VER_NT_WORKSTATION, 0
     },
 
@@ -281,13 +277,13 @@ static BOOL get_nt_registry_version( RTL_OSVERSIONINFOEXW *version )
     {
         WCHAR *p, *str = (WCHAR *)info->Data;
         str[info->DataLength / sizeof(WCHAR)] = 0;
-        p = strchrW( str, '.' );
+        p = wcschr( str, '.' );
         if (p)
         {
             *p++ = 0;
-            version->dwMinorVersion = atoiW( p );
+            version->dwMinorVersion = wcstoul( p, NULL, 10 );
         }
-        version->dwMajorVersion = atoiW( str );
+        version->dwMajorVersion = wcstoul( str, NULL, 10 );
     }
 
     if (version->dwMajorVersion)   /* we got the main version, now fetch the other fields */
@@ -302,7 +298,7 @@ static BOOL get_nt_registry_version( RTL_OSVERSIONINFOEXW *version )
         {
             WCHAR *str = (WCHAR *)info->Data;
             str[info->DataLength / sizeof(WCHAR)] = 0;
-            version->dwBuildNumber = atoiW( str );
+            version->dwBuildNumber = wcstoul( str, NULL, 10 );
         }
 
         /* get version description */
@@ -343,9 +339,9 @@ static BOOL get_nt_registry_version( RTL_OSVERSIONINFOEXW *version )
             {
                 WCHAR *str = (WCHAR *)info->Data;
                 str[info->DataLength / sizeof(WCHAR)] = 0;
-                if (!strcmpiW( str, WinNTW )) version->wProductType = VER_NT_WORKSTATION;
-                else if (!strcmpiW( str, LanmanNTW )) version->wProductType = VER_NT_DOMAIN_CONTROLLER;
-                else if (!strcmpiW( str, ServerNTW )) version->wProductType = VER_NT_SERVER;
+                if (!wcsicmp( str, WinNTW )) version->wProductType = VER_NT_WORKSTATION;
+                else if (!wcsicmp( str, LanmanNTW )) version->wProductType = VER_NT_DOMAIN_CONTROLLER;
+                else if (!wcsicmp( str, ServerNTW )) version->wProductType = VER_NT_SERVER;
             }
             NtClose( hkey2 );
         }
@@ -398,19 +394,19 @@ static BOOL get_win9x_registry_version( RTL_OSVERSIONINFOEXW *version )
     {
         WCHAR *p, *str = (WCHAR *)info->Data;
         str[info->DataLength / sizeof(WCHAR)] = 0;
-        p = strchrW( str, '.' );
+        p = wcschr( str, '.' );
         if (p) *p++ = 0;
-        version->dwMajorVersion = atoiW( str );
+        version->dwMajorVersion = wcstoul( str, NULL, 10 );
         if (p)
         {
             str = p;
-            p = strchrW( str, '.' );
+            p = wcschr( str, '.' );
             if (p)
             {
                 *p++ = 0;
-                version->dwBuildNumber = atoiW( p );
+                version->dwBuildNumber = wcstoul( p, NULL, 10 );
             }
-            version->dwMinorVersion = atoiW( str );
+            version->dwMinorVersion = wcstoul( str, NULL, 10 );
         }
         /* build number contains version too on Win9x */
         version->dwBuildNumber |= MAKEWORD( version->dwMinorVersion, version->dwMajorVersion ) << 16;
@@ -458,7 +454,7 @@ static BOOL parse_win_version( HANDLE hkey )
 
     for (i = 0; i < ARRAY_SIZE(version_names); i++)
     {
-        if (strcmpW( version_names[i].name, name )) continue;
+        if (wcscmp( version_names[i].name, name )) continue;
         current_version = &VersionData[version_names[i].ver];
         TRACE( "got win version %s\n", debugstr_w(version_names[i].name) );
         return TRUE;
@@ -501,11 +497,11 @@ void version_init(void)
 
     /* open AppDefaults\\appname key */
 
-    if ((p = strrchrW( appname, '/' ))) appname = p + 1;
-    if ((p = strrchrW( appname, '\\' ))) appname = p + 1;
+    if ((p = wcsrchr( appname, '/' ))) appname = p + 1;
+    if ((p = wcsrchr( appname, '\\' ))) appname = p + 1;
 
-    strcpyW( appversion, appdefaultsW );
-    strcatW( appversion, appname );
+    wcscpy( appversion, appdefaultsW );
+    wcscat( appversion, appname );
     RtlInitUnicodeString( &nameW, appversion );
     attr.RootDirectory = config_key;
 
@@ -540,12 +536,6 @@ done:
     NtCurrentTeb()->Peb->OSMinorVersion = current_version->dwMinorVersion;
     NtCurrentTeb()->Peb->OSBuildNumber  = current_version->dwBuildNumber;
     NtCurrentTeb()->Peb->OSPlatformId   = current_version->dwPlatformId;
-
-    user_shared_data->NtProductType      = current_version->wProductType;
-    user_shared_data->ProductTypeIsValid = TRUE;
-    user_shared_data->NtMajorVersion     = current_version->dwMajorVersion;
-    user_shared_data->NtMinorVersion     = current_version->dwMinorVersion;
-    user_shared_data->SuiteMask          = current_version->wSuiteMask;
 
     TRACE( "got %d.%d platform %d build %x name %s service pack %d.%d product %d\n",
            current_version->dwMajorVersion, current_version->dwMinorVersion,
@@ -595,7 +585,7 @@ NTSTATUS WINAPI RtlGetVersion( RTL_OSVERSIONINFOEXW *info )
     info->dwMinorVersion = current_version->dwMinorVersion;
     info->dwBuildNumber  = current_version->dwBuildNumber;
     info->dwPlatformId   = current_version->dwPlatformId;
-    strcpyW( info->szCSDVersion, current_version->szCSDVersion );
+    wcscpy( info->szCSDVersion, current_version->szCSDVersion );
     if(info->dwOSVersionInfoSize == sizeof(RTL_OSVERSIONINFOEXW))
     {
         info->wServicePackMajor = current_version->wServicePackMajor;

@@ -36,7 +36,6 @@
 #include "file.h"
 #include "handle.h"
 #include "request.h"
-#include "esync.h"
 
 struct timer
 {
@@ -44,18 +43,16 @@ struct timer
     int                  manual;    /* manual reset */
     int                  signaled;  /* current signaled state */
     unsigned int         period;    /* timer period in ms */
-    timeout_t            when;      /* next expiration */
+    abstime_t            when;      /* next expiration */
     struct timeout_user *timeout;   /* timeout user */
     struct thread       *thread;    /* thread that set the APC function */
     client_ptr_t         callback;  /* callback APC function */
     client_ptr_t         arg;       /* callback argument */
-    int                  esync_fd;  /* esync file descriptor */
 };
 
 static void timer_dump( struct object *obj, int verbose );
 static struct object_type *timer_get_type( struct object *obj );
 static int timer_signaled( struct object *obj, struct wait_queue_entry *entry );
-static int timer_get_esync_fd( struct object *obj, enum esync_type *type );
 static void timer_satisfied( struct object *obj, struct wait_queue_entry *entry );
 static unsigned int timer_map_access( struct object *obj, unsigned int access );
 static void timer_destroy( struct object *obj );
@@ -68,19 +65,18 @@ static const struct object_ops timer_ops =
     add_queue,                 /* add_queue */
     remove_queue,              /* remove_queue */
     timer_signaled,            /* signaled */
-    timer_get_esync_fd,        /* get_esync_fd */
     timer_satisfied,           /* satisfied */
     no_signal,                 /* signal */
     no_get_fd,                 /* get_fd */
     timer_map_access,          /* map_access */
     default_get_sd,            /* get_sd */
     default_set_sd,            /* set_sd */
+    default_get_full_name,     /* get_full_name */
     no_lookup_name,            /* lookup_name */
     directory_link_name,       /* link_name */
     default_unlink_name,       /* unlink_name */
     no_open_file,              /* open_file */
     no_kernel_obj_list,        /* get_kernel_obj_list */
-    no_alloc_handle,           /* alloc_handle */
     no_close_handle,           /* close_handle */
     timer_destroy              /* destroy */
 };
@@ -103,9 +99,6 @@ static struct timer *create_timer( struct object *root, const struct unicode_str
             timer->period   = 0;
             timer->timeout  = NULL;
             timer->thread   = NULL;
-
-            if (do_esync())
-                timer->esync_fd = esync_create_fd( 0, 0 );
         }
     }
     return timer;
@@ -124,10 +117,10 @@ static void timer_callback( void *private )
         memset( &data, 0, sizeof(data) );
         if (timer->callback)
         {
-            data.type       = APC_TIMER;
-            data.timer.func = timer->callback;
-            data.timer.time = timer->when;
-            data.timer.arg  = timer->arg;
+            data.type            = APC_TIMER;
+            data.user.timer.func = timer->callback;
+            data.user.timer.time = timer->when;
+            data.user.timer.arg  = timer->arg;
         }
         else data.type = APC_NONE;  /* wake up only */
 
@@ -140,8 +133,9 @@ static void timer_callback( void *private )
 
     if (timer->period)  /* schedule the next expiration */
     {
-        timer->when += (timeout_t)timer->period * 10000;
-        timer->timeout = add_timeout_user( timer->when, timer_callback, timer );
+        if (timer->when > 0) timer->when = -monotonic_time;
+        timer->when -= (abstime_t)timer->period * 10000;
+        timer->timeout = add_timeout_user( abstime_to_timeout(timer->when), timer_callback, timer );
     }
     else timer->timeout = NULL;
 
@@ -178,25 +172,24 @@ static int set_timer( struct timer *timer, timeout_t expire, unsigned int period
     {
         period = 0;  /* period doesn't make any sense for a manual timer */
         timer->signaled = 0;
-
-        if (do_esync())
-            esync_clear( timer->esync_fd );
     }
-    timer->when     = (expire <= 0) ? current_time - expire : max( expire, current_time );
+    timer->when     = (expire <= 0) ? expire - monotonic_time : max( expire, current_time );
     timer->period   = period;
     timer->callback = callback;
     timer->arg      = arg;
     if (callback) timer->thread = (struct thread *)grab_object( current );
-    timer->timeout = add_timeout_user( timer->when, timer_callback, timer );
+    if (expire != TIMEOUT_INFINITE)
+        timer->timeout = add_timeout_user( expire, timer_callback, timer );
     return signaled;
 }
 
 static void timer_dump( struct object *obj, int verbose )
 {
     struct timer *timer = (struct timer *)obj;
+    timeout_t timeout = abstime_to_timeout( timer->when );
     assert( obj->ops == &timer_ops );
     fprintf( stderr, "Timer manual=%d when=%s period=%u\n",
-             timer->manual, get_timeout_str(timer->when), timer->period );
+             timer->manual, get_timeout_str(timeout), timer->period );
 }
 
 static struct object_type *timer_get_type( struct object *obj )
@@ -210,13 +203,6 @@ static int timer_signaled( struct object *obj, struct wait_queue_entry *entry )
     struct timer *timer = (struct timer *)obj;
     assert( obj->ops == &timer_ops );
     return timer->signaled;
-}
-
-static int timer_get_esync_fd( struct object *obj, enum esync_type *type )
-{
-    struct timer *timer = (struct timer *)obj;
-    *type = timer->manual ? ESYNC_MANUAL_SERVER : ESYNC_AUTO_SERVER;
-    return timer->esync_fd;
 }
 
 static void timer_satisfied( struct object *obj, struct wait_queue_entry *entry )

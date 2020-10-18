@@ -17,15 +17,24 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include <time.h>
 #include <stdarg.h>
 
 #include "windef.h"
 #include "winbase.h"
+#include "winreg.h"
 #include "winuser.h"
+#include "initguid.h"
+#include "devguid.h"
+#include "setupapi.h"
 
 #include "vulkan_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(vulkan);
+
+DEFINE_DEVPROPKEY(DEVPROPKEY_GPU_LUID, 0x60b193cb, 0x5276, 0x4d0f, 0x96, 0xfc, 0xf1, 0x73, 0xab, 0xad, 0x3e, 0xc6, 2);
+DEFINE_DEVPROPKEY(WINE_DEVPROPKEY_GPU_VULKAN_UUID, 0x233a9ef3, 0xafc4, 0x4abd, 0xb5, 0x64, 0xc3, 0x2f, 0x21, 0xf1, 0x53, 0x5c, 2);
 
 /* For now default to 4 as it felt like a reasonable version feature wise to support.
  * Don't support the optional vk_icdGetPhysicalDeviceProcAddr introduced in this version
@@ -50,6 +59,7 @@ static void *wine_vk_find_struct_(void *s, VkStructureType t)
 
 static void *wine_vk_get_global_proc_addr(const char *name);
 
+static HINSTANCE hinstance;
 static const struct vulkan_funcs *vk_funcs;
 static VkResult (*p_vkEnumerateInstanceVersion)(uint32_t *version);
 
@@ -298,7 +308,7 @@ static void wine_vk_device_free(struct VkDevice_T *device)
     heap_free(device);
 }
 
-static BOOL wine_vk_init(void)
+static BOOL WINAPI wine_vk_init(INIT_ONCE *once, void *param, void **context)
 {
     HDC hdc;
 
@@ -306,14 +316,18 @@ static BOOL wine_vk_init(void)
     vk_funcs = __wine_get_vulkan_driver(hdc, WINE_VULKAN_DRIVER_VERSION);
     ReleaseDC(0, hdc);
     if (!vk_funcs)
-    {
         ERR("Failed to load Wine graphics driver supporting Vulkan.\n");
-        return FALSE;
-    }
-
-    p_vkEnumerateInstanceVersion = vk_funcs->p_vkGetInstanceProcAddr(NULL, "vkEnumerateInstanceVersion");
+    else
+        p_vkEnumerateInstanceVersion = vk_funcs->p_vkGetInstanceProcAddr(NULL, "vkEnumerateInstanceVersion");
 
     return TRUE;
+}
+
+static void wine_vk_init_once(void)
+{
+    static INIT_ONCE init_once = INIT_ONCE_STATIC_INIT;
+
+    InitOnceExecuteOnce(&init_once, wine_vk_init, NULL, NULL);
 }
 
 /* Helper function for converting between win32 and host compatible VkInstanceCreateInfo.
@@ -321,7 +335,7 @@ static BOOL wine_vk_init(void)
  * driver is responsible for handling e.g. surface extensions.
  */
 static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo *src,
-        VkInstanceCreateInfo *dst)
+        VkInstanceCreateInfo *dst, struct VkInstance_T *object)
 {
     unsigned int i;
     VkResult res;
@@ -337,8 +351,14 @@ static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo 
     /* ICDs don't support any layers, so nothing to copy. Modern versions of the loader
      * filter this data out as well.
      */
-    dst->enabledLayerCount = 0;
-    dst->ppEnabledLayerNames = NULL;
+    if (object->quirks & WINEVULKAN_QUIRK_IGNORE_EXPLICIT_LAYERS) {
+        dst->enabledLayerCount = 0;
+        dst->ppEnabledLayerNames = NULL;
+        WARN("Ignoring explicit layers!\n");
+    } else if (dst->enabledLayerCount) {
+        FIXME("Loading explicit layers is not supported by winevulkan!\n");
+        return VK_ERROR_LAYER_NOT_PRESENT;
+    }
 
     TRACE("Enabled %u instance extensions.\n", dst->enabledExtensionCount);
     for (i = 0; i < dst->enabledExtensionCount; i++)
@@ -645,6 +665,10 @@ VkResult WINAPI wine_vkCreateInstance(const VkInstanceCreateInfo *create_info,
 
     TRACE("create_info %p, allocator %p, instance %p\n", create_info, allocator, instance);
 
+    wine_vk_init_once();
+    if (!vk_funcs)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
     if (allocator)
         FIXME("Support for allocation callbacks not implemented yet\n");
 
@@ -655,7 +679,7 @@ VkResult WINAPI wine_vkCreateInstance(const VkInstanceCreateInfo *create_info,
     }
     object->base.loader_magic = VULKAN_ICD_MAGIC_VALUE;
 
-    res = wine_vk_instance_convert_create_info(create_info, &create_info_host);
+    res = wine_vk_instance_convert_create_info(create_info, &create_info_host, object);
     if (res != VK_SUCCESS)
     {
         wine_vk_instance_free(object);
@@ -704,6 +728,8 @@ VkResult WINAPI wine_vkCreateInstance(const VkInstanceCreateInfo *create_info,
         if (app_info->pEngineName && !strcmp(app_info->pEngineName, "idTech"))
             object->quirks |= WINEVULKAN_QUIRK_GET_DEVICE_PROC_ADDR;
     }
+
+    object->quirks |= WINEVULKAN_QUIRK_ADJUST_MAX_IMAGE_COUNT;
 
     *instance = object;
     TRACE("Created instance %p (native instance %p).\n", object, object->instance);
@@ -769,6 +795,13 @@ VkResult WINAPI wine_vkEnumerateInstanceExtensionProperties(const char *layer_na
     {
         WARN("Layer enumeration not supported from ICD.\n");
         return VK_ERROR_LAYER_NOT_PRESENT;
+    }
+
+    wine_vk_init_once();
+    if (!vk_funcs)
+    {
+        *count = 0;
+        return VK_SUCCESS;
     }
 
     res = vk_funcs->p_vkEnumerateInstanceExtensionProperties(NULL, &num_host_properties, NULL);
@@ -838,6 +871,8 @@ VkResult WINAPI wine_vkEnumerateInstanceVersion(uint32_t *version)
     VkResult res;
 
     TRACE("%p\n", version);
+
+    wine_vk_init_once();
 
     if (p_vkEnumerateInstanceVersion)
     {
@@ -1243,6 +1278,244 @@ VkResult WINAPI wine_vkGetPhysicalDeviceImageFormatProperties2KHR(VkPhysicalDevi
     return res;
 }
 
+/* From ntdll/unix/sync.c */
+#define NANOSECONDS_IN_A_SECOND 1000000000
+#define TICKSPERSEC             10000000
+
+static inline VkTimeDomainEXT get_performance_counter_time_domain(void)
+{
+#if !defined(__APPLE__) && defined(HAVE_CLOCK_GETTIME)
+# ifdef CLOCK_MONOTONIC_RAW
+    return VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT;
+# else
+    return VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT;
+# endif
+#else
+    FIXME("No mapping for VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT on this platform.");
+    return VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+#endif
+}
+
+static VkTimeDomainEXT map_to_host_time_domain(VkTimeDomainEXT domain)
+{
+    /* Matches ntdll/unix/sync.c's performance counter implementation. */
+    if (domain == VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT)
+        return get_performance_counter_time_domain();
+
+    return domain;
+}
+
+static inline uint64_t convert_monotonic_timestamp(uint64_t value)
+{
+    return value / (NANOSECONDS_IN_A_SECOND / TICKSPERSEC);
+}
+
+static inline uint64_t convert_timestamp(VkTimeDomainEXT host_domain, VkTimeDomainEXT target_domain, uint64_t value)
+{
+    if (host_domain == target_domain)
+        return value;
+
+    /* Convert between MONOTONIC time in ns -> QueryPerformanceCounter */
+    if ((host_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT || host_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT)
+            && target_domain == VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT)
+        return convert_monotonic_timestamp(value);
+
+    FIXME("Couldn't translate between host domain %d and target domain %d", host_domain, target_domain);
+    return value;
+}
+
+VkResult WINAPI wine_vkGetCalibratedTimestampsEXT(VkDevice device,
+    uint32_t timestamp_count, const VkCalibratedTimestampInfoEXT *timestamp_infos,
+    uint64_t *timestamps, uint64_t *max_deviation)
+{
+    VkCalibratedTimestampInfoEXT* host_timestamp_infos;
+    unsigned int i;
+    VkResult res;
+    TRACE("%p, %u, %p, %p, %p\n", device, timestamp_count, timestamp_infos, timestamps, max_deviation);
+
+    if (!(host_timestamp_infos = heap_alloc(sizeof(VkCalibratedTimestampInfoEXT) * timestamp_count)))
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+
+    for (i = 0; i < timestamp_count; i++)
+    {
+        host_timestamp_infos[i].sType = timestamp_infos[i].sType;
+        host_timestamp_infos[i].pNext = timestamp_infos[i].pNext;
+        host_timestamp_infos[i].timeDomain = map_to_host_time_domain(timestamp_infos[i].timeDomain);
+    }
+
+    res = device->funcs.p_vkGetCalibratedTimestampsEXT(device->device, timestamp_count, host_timestamp_infos, timestamps, max_deviation);
+    if (res != VK_SUCCESS)
+        return res;
+
+    for (i = 0; i < timestamp_count; i++)
+        timestamps[i] = convert_timestamp(host_timestamp_infos[i].timeDomain, timestamp_infos[i].timeDomain, timestamps[i]);
+
+    heap_free(host_timestamp_infos);
+
+    return res;
+}
+
+VkResult WINAPI wine_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(VkPhysicalDevice phys_dev,
+    uint32_t *time_domain_count, VkTimeDomainEXT *time_domains)
+{
+    BOOL supports_device = FALSE, supports_monotonic = FALSE, supports_monotonic_raw = FALSE;
+    const VkTimeDomainEXT performance_counter_domain = get_performance_counter_time_domain();
+    VkTimeDomainEXT *host_time_domains;
+    uint32_t host_time_domain_count;
+    VkTimeDomainEXT out_time_domains[2];
+    uint32_t out_time_domain_count;
+    unsigned int i;
+    VkResult res;
+
+    TRACE("%p, %p, %p\n", phys_dev, time_domain_count, time_domains);
+
+    /* Find out the time domains supported on the host */
+    res = phys_dev->instance->funcs.p_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(phys_dev->phys_dev, &host_time_domain_count, NULL);
+    if (res != VK_SUCCESS)
+        return res;
+
+    if (!(host_time_domains = heap_alloc(sizeof(VkTimeDomainEXT) * host_time_domain_count)))
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+
+    res = phys_dev->instance->funcs.p_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(phys_dev->phys_dev, &host_time_domain_count, host_time_domains);
+    if (res != VK_SUCCESS)
+    {
+        heap_free(host_time_domains);
+        return res;
+    }
+
+    for (i = 0; i < host_time_domain_count; i++)
+    {
+        if (host_time_domains[i] == VK_TIME_DOMAIN_DEVICE_EXT)
+            supports_device = TRUE;
+        else if (host_time_domains[i] == VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT)
+            supports_monotonic = TRUE;
+        else if (host_time_domains[i] == VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT)
+            supports_monotonic_raw = TRUE;
+        else
+            FIXME("Unknown time domain %d", host_time_domains[i]);
+    }
+
+    heap_free(host_time_domains);
+
+    out_time_domain_count = 0;
+
+    /* Map our monotonic times -> QPC */
+    if (supports_monotonic_raw && performance_counter_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT)
+        out_time_domains[out_time_domain_count++] = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+    else if (supports_monotonic && performance_counter_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT)
+        out_time_domains[out_time_domain_count++] = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+    else
+        FIXME("VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT not supported on this platform.");
+
+    /* Forward the device domain time */
+    if (supports_device)
+        out_time_domains[out_time_domain_count++] = VK_TIME_DOMAIN_DEVICE_EXT;
+
+    /* Send the count/domains back to the app */
+    if (!time_domains)
+    {
+        *time_domain_count = out_time_domain_count;
+        return VK_SUCCESS;
+    }
+
+    for (i = 0; i < min(*time_domain_count, out_time_domain_count); i++)
+        time_domains[i] = out_time_domains[i];
+
+    res = *time_domain_count < out_time_domain_count ? VK_INCOMPLETE : VK_SUCCESS;
+    *time_domain_count = out_time_domain_count;
+    return res;
+}
+
+static HANDLE get_display_device_init_mutex(void)
+{
+    static const WCHAR init_mutexW[] = {'d','i','s','p','l','a','y','_','d','e','v','i','c','e','_','i','n','i','t',0};
+    HANDLE mutex = CreateMutexW(NULL, FALSE, init_mutexW);
+
+    WaitForSingleObject(mutex, INFINITE);
+    return mutex;
+}
+
+static void release_display_device_init_mutex(HANDLE mutex)
+{
+    ReleaseMutex(mutex);
+    CloseHandle(mutex);
+}
+
+/* Wait until graphics driver is loaded by explorer */
+static void wait_graphics_driver_ready(void)
+{
+    static BOOL ready = FALSE;
+
+    if (!ready)
+    {
+        SendMessageW(GetDesktopWindow(), WM_NULL, 0, 0);
+        ready = TRUE;
+    }
+}
+
+static void fill_luid_property(VkPhysicalDeviceProperties2 *properties2)
+{
+    static const WCHAR pci[] = {'P','C','I',0};
+    VkPhysicalDeviceIDProperties *id;
+    SP_DEVINFO_DATA device_data;
+    DWORD type, device_idx = 0;
+    HDEVINFO devinfo;
+    HANDLE mutex;
+    GUID uuid;
+    LUID luid;
+
+    if (!(id = wine_vk_find_struct(properties2, PHYSICAL_DEVICE_ID_PROPERTIES)))
+        return;
+
+    wait_graphics_driver_ready();
+    mutex = get_display_device_init_mutex();
+    devinfo = SetupDiGetClassDevsW(&GUID_DEVCLASS_DISPLAY, pci, NULL, 0);
+    device_data.cbSize = sizeof(device_data);
+    while (SetupDiEnumDeviceInfo(devinfo, device_idx++, &device_data))
+    {
+        if (!SetupDiGetDevicePropertyW(devinfo, &device_data, &WINE_DEVPROPKEY_GPU_VULKAN_UUID,
+                &type, (BYTE *)&uuid, sizeof(uuid), NULL, 0))
+            continue;
+
+        if (!IsEqualGUID(&uuid, id->deviceUUID))
+            continue;
+
+        if (SetupDiGetDevicePropertyW(devinfo, &device_data, &DEVPROPKEY_GPU_LUID, &type,
+                (BYTE *)&luid, sizeof(luid), NULL, 0))
+        {
+            memcpy(&id->deviceLUID, &luid, sizeof(id->deviceLUID));
+            id->deviceLUIDValid = VK_TRUE;
+            id->deviceNodeMask = 1;
+            break;
+        }
+    }
+    SetupDiDestroyDeviceInfoList(devinfo);
+    release_display_device_init_mutex(mutex);
+
+    TRACE("deviceName:%s deviceLUIDValid:%d LUID:%08x:%08x deviceNodeMask:%#x.\n",
+            properties2->properties.deviceName, id->deviceLUIDValid, luid.HighPart, luid.LowPart,
+            id->deviceNodeMask);
+}
+
+void WINAPI wine_vkGetPhysicalDeviceProperties2(VkPhysicalDevice phys_dev,
+        VkPhysicalDeviceProperties2 *properties2)
+{
+    TRACE("%p, %p\n", phys_dev, properties2);
+
+    thunk_vkGetPhysicalDeviceProperties2(phys_dev, properties2);
+    fill_luid_property(properties2);
+}
+
+void WINAPI wine_vkGetPhysicalDeviceProperties2KHR(VkPhysicalDevice phys_dev,
+        VkPhysicalDeviceProperties2 *properties2)
+{
+    TRACE("%p, %p\n", phys_dev, properties2);
+
+    thunk_vkGetPhysicalDeviceProperties2KHR(phys_dev, properties2);
+    fill_luid_property(properties2);
+}
+
 void WINAPI wine_vkGetPhysicalDeviceExternalSemaphoreProperties(VkPhysicalDevice phys_dev,
         const VkPhysicalDeviceExternalSemaphoreInfo *semaphore_info, VkExternalSemaphoreProperties *properties)
 {
@@ -1261,6 +1534,88 @@ void WINAPI wine_vkGetPhysicalDeviceExternalSemaphorePropertiesKHR(VkPhysicalDev
     properties->externalSemaphoreFeatures = 0;
 }
 
+static uint64_t unwrap_object_handle(VkObjectType type, uint64_t handle)
+{
+    switch (type)
+    {
+        case VK_OBJECT_TYPE_DEVICE:
+            return (uint64_t) (uintptr_t) ((VkDevice) (uintptr_t) handle)->device;
+        case VK_OBJECT_TYPE_QUEUE:
+            return (uint64_t) (uintptr_t) ((VkQueue) (uintptr_t) handle)->queue;
+        case VK_OBJECT_TYPE_COMMAND_BUFFER:
+            return (uint64_t) (uintptr_t) ((VkCommandBuffer) (uintptr_t) handle)->command_buffer;
+        case VK_OBJECT_TYPE_COMMAND_POOL:
+            return (uint64_t) wine_cmd_pool_from_handle(handle)->command_pool;
+        default:
+            return handle;
+    }
+}
+
+VkResult WINAPI wine_vkSetPrivateDataEXT(VkDevice device, VkObjectType object_type, uint64_t object_handle,
+        VkPrivateDataSlotEXT private_data_slot, uint64_t data)
+{
+    TRACE("%p, %#x, 0x%s, 0x%s, 0x%s\n", device, object_type, wine_dbgstr_longlong(object_handle),
+            wine_dbgstr_longlong(private_data_slot), wine_dbgstr_longlong(data));
+
+    object_handle = unwrap_object_handle(object_type, object_handle);
+    return device->funcs.p_vkSetPrivateDataEXT(device->device, object_type, object_handle, private_data_slot, data);
+}
+
+void WINAPI wine_vkGetPrivateDataEXT(VkDevice device, VkObjectType object_type, uint64_t object_handle,
+        VkPrivateDataSlotEXT private_data_slot, uint64_t *data)
+{
+    TRACE("%p, %#x, 0x%s, 0x%s, %p\n", device, object_type, wine_dbgstr_longlong(object_handle),
+            wine_dbgstr_longlong(private_data_slot), data);
+
+    object_handle = unwrap_object_handle(object_type, object_handle);
+    device->funcs.p_vkGetPrivateDataEXT(device->device, object_type, object_handle, private_data_slot, data);
+}
+
+static inline void adjust_max_image_count(VkPhysicalDevice phys_dev, VkSurfaceCapabilitiesKHR* capabilities)
+{
+    /* Many Windows games, for example Strange Brigade, No Man's Sky, Path of Exile
+     * and World War Z, do not expect that maxImageCount can be set to 0.
+     * A value of 0 means that there is no limit on the number of images.
+     * Nvidia reports 8 on Windows, AMD 16.
+     * https://vulkan.gpuinfo.org/displayreport.php?id=9122#surface
+     * https://vulkan.gpuinfo.org/displayreport.php?id=9121#surface
+     */
+    if ((phys_dev->instance->quirks & WINEVULKAN_QUIRK_ADJUST_MAX_IMAGE_COUNT) && !capabilities->maxImageCount)
+    {
+        capabilities->maxImageCount = max(capabilities->minImageCount, 16);
+    }
+}
+
+VkResult WINAPI wine_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice phys_dev,
+        VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR *capabilities)
+{
+    VkResult res;
+
+    TRACE("%p, 0x%s, %p\n", phys_dev, wine_dbgstr_longlong(surface), capabilities);
+
+    res = thunk_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys_dev, surface, capabilities);
+
+    if (res == VK_SUCCESS)
+        adjust_max_image_count(phys_dev, capabilities);
+
+    return res;
+}
+
+VkResult WINAPI wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice phys_dev,
+        const VkPhysicalDeviceSurfaceInfo2KHR *surface_info, VkSurfaceCapabilities2KHR *capabilities)
+{
+    VkResult res;
+
+    TRACE("%p, %p, %p\n", phys_dev, surface_info, capabilities);
+
+    res = thunk_vkGetPhysicalDeviceSurfaceCapabilities2KHR(phys_dev, surface_info, capabilities);
+
+    if (res == VK_SUCCESS)
+        adjust_max_image_count(phys_dev, &capabilities->surfaceCapabilities);
+
+    return res;
+}
+
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, void *reserved)
 {
     TRACE("%p, %u, %p\n", hinst, reason, reserved);
@@ -1268,14 +1623,16 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, void *reserved)
     switch (reason)
     {
         case DLL_PROCESS_ATTACH:
+            hinstance = hinst;
             DisableThreadLibraryCalls(hinst);
-            return wine_vk_init();
+            break;
     }
     return TRUE;
 }
 
 static const struct vulkan_func vk_global_dispatch_table[] =
 {
+    /* These functions must call wine_vk_init_once() before accessing vk_funcs. */
     {"vkCreateInstance", &wine_vkCreateInstance},
     {"vkEnumerateInstanceExtensionProperties", &wine_vkEnumerateInstanceExtensionProperties},
     {"vkEnumerateInstanceLayerProperties", &wine_vkEnumerateInstanceLayerProperties},
@@ -1306,4 +1663,64 @@ static void *wine_vk_get_global_proc_addr(const char *name)
 void *native_vkGetInstanceProcAddrWINE(VkInstance instance, const char *name)
 {
     return vk_funcs->p_vkGetInstanceProcAddr(instance, name);
+}
+
+
+static const WCHAR winevulkan_json_resW[] = {'w','i','n','e','v','u','l','k','a','n','_','j','s','o','n',0};
+static const WCHAR winevulkan_json_pathW[] = {'\\','w','i','n','e','v','u','l','k','a','n','.','j','s','o','n',0};
+static const WCHAR vulkan_driversW[] = {'S','o','f','t','w','a','r','e','\\','K','h','r','o','n','o','s','\\',
+                                        'V','u','l','k','a','n','\\','D','r','i','v','e','r','s',0};
+
+HRESULT WINAPI DllRegisterServer(void)
+{
+    WCHAR json_path[MAX_PATH];
+    HRSRC rsrc;
+    const char *data;
+    DWORD datalen, written, zero = 0;
+    HANDLE file;
+    HKEY key;
+
+    /* Create the JSON manifest and registry key to register this ICD with the official Vulkan loader. */
+    TRACE("\n");
+    rsrc = FindResourceW(hinstance, winevulkan_json_resW, (const WCHAR *)RT_RCDATA);
+    data = LockResource(LoadResource(hinstance, rsrc));
+    datalen = SizeofResource(hinstance, rsrc);
+
+    GetSystemDirectoryW(json_path, ARRAY_SIZE(json_path));
+    lstrcatW(json_path, winevulkan_json_pathW);
+    file = CreateFileW(json_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        ERR("Unable to create JSON manifest.\n");
+        return E_UNEXPECTED;
+    }
+    WriteFile(file, data, datalen, &written, NULL);
+    CloseHandle(file);
+
+    if (!RegCreateKeyExW(HKEY_LOCAL_MACHINE, vulkan_driversW, 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL))
+    {
+        RegSetValueExW(key, json_path, 0, REG_DWORD, (const BYTE *)&zero, sizeof(zero));
+        RegCloseKey(key);
+    }
+    return S_OK;
+}
+
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    WCHAR json_path[MAX_PATH];
+    HKEY key;
+
+    /* Remove the JSON manifest and registry key */
+    TRACE("\n");
+    GetSystemDirectoryW(json_path, ARRAY_SIZE(json_path));
+    lstrcatW(json_path, winevulkan_json_pathW);
+    DeleteFileW(json_path);
+
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, vulkan_driversW, 0, KEY_SET_VALUE, &key) == ERROR_SUCCESS)
+    {
+        RegDeleteValueW(key, json_path);
+        RegCloseKey(key);
+    }
+
+    return S_OK;
 }

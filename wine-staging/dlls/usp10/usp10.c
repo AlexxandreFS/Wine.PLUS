@@ -169,7 +169,7 @@ script_ranges[] =
     /* Control Pictures : U+2400 –U+243f */
     /* Optical Character Recognition : U+2440 –U+245f */
     /* Enclosed Alphanumerics : U+2460 –U+24ff */
-    /* Box Drawing : U+2500 –U+25ff */
+    /* Box Drawing : U+2500 –U+257f */
     /* Block Elements : U+2580 –U+259f */
     /* Geometric Shapes : U+25a0 –U+25ff */
     /* Miscellaneous Symbols : U+2600 –U+26ff */
@@ -937,7 +937,8 @@ static HRESULT init_script_cache(const HDC hdc, SCRIPT_CACHE *psc)
 static WCHAR mirror_char( WCHAR ch )
 {
     extern const WCHAR wine_mirror_map[] DECLSPEC_HIDDEN;
-    return ch + wine_mirror_map[wine_mirror_map[ch >> 8] + (ch & 0xff)];
+    WCHAR mirror = get_table_entry( wine_mirror_map, ch );
+    return mirror ? mirror : ch;
 }
 
 static DWORD decode_surrogate_pair(const WCHAR *str, unsigned int index, unsigned int end)
@@ -3606,10 +3607,10 @@ HRESULT WINAPI ScriptTextOut(const HDC hdc, SCRIPT_CACHE *psc, int x, int y, UIN
     if (!hdc || !psc) return E_INVALIDARG;
     if (!piAdvance || !psa || !pwGlyphs) return E_INVALIDARG;
 
-    fuOptions &= ETO_CLIPPED + ETO_OPAQUE;
+    fuOptions &= ETO_CLIPPED | ETO_OPAQUE;
     fuOptions |= ETO_IGNORELANGUAGE;
-    if  (!psa->fNoGlyphIndex)                                     /* Have Glyphs?                      */
-        fuOptions |= ETO_GLYPH_INDEX;                             /* Say don't do translation to glyph */
+    if (!psa->fNoGlyphIndex && *psc && ((ScriptCache *)*psc)->sfnt)
+        fuOptions |= ETO_GLYPH_INDEX; /* We do actually have glyph indices */
 
     if (!(lpDx = heap_calloc(cGlyphs, 2 * sizeof(*lpDx))))
         return E_OUTOFMEMORY;
@@ -4093,4 +4094,16 @@ HRESULT WINAPI ScriptGetFontFeatureTags( HDC hdc, SCRIPT_CACHE *psc, SCRIPT_ANAL
     if ((hr = init_script_cache(hdc, psc)) != S_OK) return hr;
 
     return SHAPE_GetFontFeatureTags(hdc, (ScriptCache *)*psc, psa, tagScript, tagLangSys, cMaxTags, pFeatureTags, pcTags);
+}
+
+HRESULT WINAPI ScriptGetFontAlternateGlyphs( HDC hdc, SCRIPT_CACHE *sc, SCRIPT_ANALYSIS *sa, OPENTYPE_TAG tag_script, OPENTYPE_TAG tag_langsys, OPENTYPE_TAG tag_feature,
+                 WORD id, int size, WORD *list, int *count )
+{
+    FIXME("(%p, %p, %p, %s, %s, %s, 0x%04x, %d, %p, %p)\n", hdc, sc, sa, debugstr_an((char*)&tag_script,4), debugstr_an((char*)&tag_langsys,4),
+          debugstr_an((char*)&tag_feature,4), id, size, list, count);
+
+    if(count)
+        *count = 0;
+
+    return E_NOTIMPL;
 }

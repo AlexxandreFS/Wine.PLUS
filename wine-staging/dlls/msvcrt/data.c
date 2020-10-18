@@ -23,12 +23,13 @@
 
 #include <math.h>
 #include "msvcrt.h"
-#include "wine/library.h"
-#include "wine/unicode.h"
+#include <winnls.h>
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msvcrt);
 
+static WCHAR **initial_wargv;
+static int initial_argc;
 int MSVCRT___argc = 0;
 static int wargc_expand;
 unsigned int MSVCRT__commode = 0;
@@ -110,11 +111,11 @@ MSVCRT_wchar_t ** msvcrt_SnapshotOfEnvironmentW(MSVCRT_wchar_t **wblk)
   int count = 1, len = 1, i = 0; /* keep space for the trailing NULLS */
   MSVCRT_wchar_t *wptr;
 
-  for (wptr = wenviron_strings; *wptr; wptr += strlenW(wptr) + 1)
+  for (wptr = wenviron_strings; *wptr; wptr += MSVCRT_wcslen(wptr) + 1)
   {
     /* Don't count environment variables starting with '=' which are command shell specific */
     if (*wptr != '=') count++;
-    len += strlenW(wptr) + 1;
+    len += MSVCRT_wcslen(wptr) + 1;
   }
   if (wblk)
       wblk = HeapReAlloc( GetProcessHeap(), 0, wblk, count* sizeof(MSVCRT_wchar_t*) + len * sizeof(MSVCRT_wchar_t));
@@ -125,7 +126,7 @@ MSVCRT_wchar_t ** msvcrt_SnapshotOfEnvironmentW(MSVCRT_wchar_t **wblk)
       if (count)
 	{
 	  memcpy(&wblk[count],wenviron_strings,len * sizeof(MSVCRT_wchar_t));
-	  for (wptr = (MSVCRT_wchar_t*)&wblk[count]; *wptr; wptr += strlenW(wptr) + 1)
+	  for (wptr = (MSVCRT_wchar_t*)&wblk[count]; *wptr; wptr += MSVCRT_wcslen(wptr) + 1)
 	    {
 	      /* Skip special environment strings set by the command shell */
 	      if (*wptr != '=') wblk[i++] = wptr;
@@ -156,6 +157,69 @@ static char **build_argv( WCHAR **wargv )
         total -= reslen;
     }
     argv[argc] = NULL;
+    return argv;
+}
+
+static WCHAR **cmdline_to_argv( const WCHAR *src, int *ret_argc )
+{
+    WCHAR **argv, *arg, *dst;
+    int argc, in_quotes = 0, bcount = 0, len = MSVCRT_wcslen(src) + 1;
+
+    argc = 2 + len / 2;
+    argv = HeapAlloc( GetProcessHeap(), 0, argc * sizeof(*argv) + len * sizeof(WCHAR) );
+    arg = dst = (WCHAR *)(argv + argc);
+    argc = 0;
+    while (*src)
+    {
+        if ((*src == ' ' || *src == '\t') && !in_quotes)
+        {
+            /* skip the remaining spaces */
+            while (*src == ' ' || *src == '\t') src++;
+            if (!*src) break;
+            /* close the argument and copy it */
+            *dst++ = 0;
+            argv[argc++] = arg;
+            /* start with a new argument */
+            arg = dst;
+            bcount = 0;
+        }
+        else if (*src == '\\')
+        {
+            *dst++ = *src++;
+            bcount++;
+        }
+        else if (*src == '"')
+        {
+            if ((bcount & 1) == 0)
+            {
+                /* Preceded by an even number of '\', this is half that
+                 * number of '\', plus a '"' which we discard.
+                 */
+                dst -= bcount / 2;
+                src++;
+                if (in_quotes && *src == '"') *dst++ = *src++;
+                else in_quotes = !in_quotes;
+            }
+            else
+            {
+                /* Preceded by an odd number of '\', this is half that
+                 * number of '\' followed by a '"'
+                 */
+                dst -= bcount / 2 + 1;
+                *dst++ = *src++;
+            }
+            bcount = 0;
+        }
+        else  /* a regular character */
+        {
+            *dst++ = *src++;
+            bcount = 0;
+        }
+    }
+    *dst = 0;
+    argv[argc++] = arg;
+    argv[argc] = NULL;
+    *ret_argc = argc;
     return argv;
 }
 
@@ -348,9 +412,10 @@ void msvcrt_init_args(void)
 
   MSVCRT__acmdln = MSVCRT__strdup( GetCommandLineA() );
   MSVCRT__wcmdln = MSVCRT__wcsdup( GetCommandLineW() );
-  MSVCRT___argc = __wine_main_argc;
-  MSVCRT___wargv = __wine_main_wargv;
-  MSVCRT___argv = build_argv( MSVCRT___wargv );
+  initial_wargv  = cmdline_to_argv( GetCommandLineW(), &initial_argc );
+  MSVCRT___argc  = initial_argc;
+  MSVCRT___wargv = initial_wargv;
+  MSVCRT___argv  = build_argv( initial_wargv );
 
   TRACE("got %s, wide = %s argc=%d\n", debugstr_a(MSVCRT__acmdln),
         debugstr_w(MSVCRT__wcmdln),MSVCRT___argc);
@@ -419,21 +484,21 @@ static int build_expanded_wargv(int *argc, MSVCRT_wchar_t **argv)
     HANDLE h;
 
     args_no = 0;
-    for(i=0; i<__wine_main_argc; i++) {
+    for(i=0; i < initial_argc; i++) {
         WIN32_FIND_DATAW data;
         int len = 0;
 
         is_expandable = FALSE;
-        for(path_len = strlenW(__wine_main_wargv[i])-1; path_len>=0; path_len--) {
-            if(__wine_main_wargv[i][path_len]=='*' || __wine_main_wargv[i][path_len]=='?')
+        for(path_len = MSVCRT_wcslen(initial_wargv[i])-1; path_len>=0; path_len--) {
+            if(initial_wargv[i][path_len]=='*' || initial_wargv[i][path_len]=='?')
                 is_expandable = TRUE;
-            else if(__wine_main_wargv[i][path_len]=='\\' || __wine_main_wargv[i][path_len]=='/')
+            else if(initial_wargv[i][path_len]=='\\' || initial_wargv[i][path_len]=='/')
                 break;
         }
         path_len++;
 
         if(is_expandable)
-            h = FindFirstFileW(__wine_main_wargv[i], &data);
+            h = FindFirstFileW(initial_wargv[i], &data);
         else
             h = INVALID_HANDLE_VALUE;
 
@@ -443,10 +508,10 @@ static int build_expanded_wargv(int *argc, MSVCRT_wchar_t **argv)
                             (data.cFileName[1]=='.' && data.cFileName[2]=='\0')))
                     continue;
 
-                len = strlenW(data.cFileName)+1;
+                len = MSVCRT_wcslen(data.cFileName)+1;
                 if(argv) {
                     argv[args_no] = (MSVCRT_wchar_t*)(argv+*argc+1)+size;
-                    memcpy(argv[args_no], __wine_main_wargv[i], path_len*sizeof(MSVCRT_wchar_t));
+                    memcpy(argv[args_no], initial_wargv[i], path_len*sizeof(MSVCRT_wchar_t));
                     memcpy(argv[args_no]+path_len, data.cFileName, len*sizeof(MSVCRT_wchar_t));
                 }
                 args_no++;
@@ -456,10 +521,10 @@ static int build_expanded_wargv(int *argc, MSVCRT_wchar_t **argv)
         }
 
         if(!len) {
-            len = strlenW(__wine_main_wargv[i])+1;
+            len = MSVCRT_wcslen(initial_wargv[i])+1;
             if(argv) {
                 argv[args_no] = (MSVCRT_wchar_t*)(argv+*argc+1)+size;
-                memcpy(argv[args_no], __wine_main_wargv[i], len*sizeof(MSVCRT_wchar_t));
+                memcpy(argv[args_no], initial_wargv[i], len*sizeof(MSVCRT_wchar_t));
             }
             args_no++;
             size += len;
@@ -496,8 +561,8 @@ int CDECL __wgetmainargs(int *argc, MSVCRT_wchar_t** *wargv, MSVCRT_wchar_t** *w
         }
     }
     if (!expand_wildcards) {
-        MSVCRT___argc = __wine_main_argc;
-        MSVCRT___wargv = __wine_main_wargv;
+        MSVCRT___argc = initial_argc;
+        MSVCRT___wargv = initial_wargv;
     }
 
     /* Initialize the _wenviron array if it's not already created. */
@@ -533,8 +598,8 @@ int CDECL __getmainargs(int *argc, char** *argv, char** *envp,
         }
     }
     if (!expand_wildcards) {
-        MSVCRT___argc = __wine_main_argc;
-        MSVCRT___argv = build_argv( __wine_main_wargv );
+        MSVCRT___argc = initial_argc;
+        MSVCRT___argv = build_argv( initial_wargv );
     }
 
     *argc = MSVCRT___argc;
@@ -651,7 +716,7 @@ MSVCRT_wchar_t** CDECL _get_initial_wide_environment(void)
  */
 int CDECL _configure_wide_argv(int mode)
 {
-  FIXME("(%d) stub\n", mode);
+  WARN("(%d) stub\n", mode);
   return 0;
 }
 
@@ -660,7 +725,7 @@ int CDECL _configure_wide_argv(int mode)
  */
 int CDECL _initialize_wide_environment(void)
 {
-  FIXME("stub\n");
+  WARN("stub\n");
   return 0;
 }
 

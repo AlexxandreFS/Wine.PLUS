@@ -742,6 +742,8 @@ DWORD WINAPI GetAdaptersInfo(PIP_ADAPTER_INFO pAdapterInfo, PULONG pOutBufLen)
               }
               /* Find first router through this interface, which we'll assume
                * is the default gateway for this adapter */
+              strcpy(ptr->GatewayList.IpAddress.String, "0.0.0.0");
+              strcpy(ptr->GatewayList.IpMask.String, "255.255.255.255");
               for (i = 0; i < routeTable->dwNumEntries; i++)
                 if (routeTable->table[i].dwForwardIfIndex == ptr->Index
                  && routeTable->table[i].u1.ForwardType ==
@@ -1006,12 +1008,19 @@ static ULONG adapterAddressesFromIndex(ULONG family, ULONG flags, IF_INDEX index
         WCHAR *dst;
         DWORD buflen, type;
         INTERNAL_IF_OPER_STATUS status;
+        NET_LUID luid;
+        GUID guid;
 
         memset(aa, 0, sizeof(IP_ADAPTER_ADDRESSES));
         aa->u.s.Length  = sizeof(IP_ADAPTER_ADDRESSES);
         aa->u.s.IfIndex = index;
 
-        sprintf(ptr, "{%08x-0000-0000-0000-000000000000}", index);
+        ConvertInterfaceIndexToLuid(index, &luid);
+        ConvertInterfaceLuidToGuid(&luid, &guid);
+        sprintf(ptr, "{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+                guid.Data1, guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1],
+                guid.Data4[2], guid.Data4[3], guid.Data4[4], guid.Data4[5],
+                guid.Data4[6], guid.Data4[7]);
         aa->AdapterName = ptr;
         ptr += 39;
 
@@ -1248,6 +1257,9 @@ static void sockaddr_in_to_WS_storage( SOCKADDR_STORAGE *dst, const struct socka
             sizeof(SOCKADDR_STORAGE) - FIELD_OFFSET( SOCKADDR_IN, sin_zero) );
 }
 
+#if defined(HAVE_STRUCT___RES_STATE__U__EXT_NSCOUNT6) || \
+    (defined(HAVE___RES_GET_STATE) && defined(HAVE___RES_GETSERVERS)) || \
+    defined(HAVE_RES_GETSERVERS)
 static void sockaddr_in6_to_WS_storage( SOCKADDR_STORAGE *dst, const struct sockaddr_in6 *src )
 {
     SOCKADDR_IN6 *s = (SOCKADDR_IN6 *)dst;
@@ -1260,6 +1272,7 @@ static void sockaddr_in6_to_WS_storage( SOCKADDR_STORAGE *dst, const struct sock
     memset( (char *)s + sizeof(SOCKADDR_IN6), 0,
                     sizeof(SOCKADDR_STORAGE) - sizeof(SOCKADDR_IN6) );
 }
+#endif
 
 #ifdef HAVE_STRUCT___RES_STATE
 /* call res_init() just once because of a bug in Mac OS X 10.4 */
@@ -1280,6 +1293,47 @@ static void initialise_resolver(void)
         res_init();
     LeaveCriticalSection(&res_init_cs);
 }
+
+#ifdef HAVE_RES_GETSERVERS
+static int get_dns_servers( SOCKADDR_STORAGE *servers, int num, BOOL ip4_only )
+{
+    struct __res_state *state = &_res;
+    int i, found = 0, total;
+    SOCKADDR_STORAGE *addr = servers;
+    union res_sockaddr_union *buf;
+
+    initialise_resolver();
+
+    total = res_getservers( state, NULL, 0 );
+
+    if ((!servers || !num) && !ip4_only) return total;
+
+    buf = HeapAlloc( GetProcessHeap(), 0, total * sizeof(union res_sockaddr_union) );
+    total = res_getservers( state, buf, total );
+
+    for (i = 0; i < total; i++)
+    {
+        if (buf[i].sin6.sin6_family == AF_INET6 && ip4_only) continue;
+        if (buf[i].sin.sin_family != AF_INET && buf[i].sin6.sin6_family != AF_INET6) continue;
+
+        found++;
+        if (!servers || !num) continue;
+
+        if (buf[i].sin6.sin6_family == AF_INET6)
+        {
+            sockaddr_in6_to_WS_storage( addr, &buf[i].sin6 );
+        }
+        else
+        {
+            sockaddr_in_to_WS_storage( addr, &buf[i].sin );
+        }
+        if (++addr >= servers + num) break;
+    }
+
+    HeapFree( GetProcessHeap(), 0, buf );
+    return found;
+}
+#else
 
 static int get_dns_servers( SOCKADDR_STORAGE *servers, int num, BOOL ip4_only )
 {
@@ -1316,6 +1370,7 @@ static int get_dns_servers( SOCKADDR_STORAGE *servers, int num, BOOL ip4_only )
     }
     return addr - servers;
 }
+#endif
 #elif defined(HAVE___RES_GET_STATE) && defined(HAVE___RES_GETSERVERS)
 
 static int get_dns_servers( SOCKADDR_STORAGE *servers, int num, BOOL ip4_only )
@@ -1738,7 +1793,7 @@ DWORD WINAPI GetIfEntry2( MIB_IF_ROW2 *row2 )
     row2->InterfaceLuid.Info.NetLuidIndex = row.dwIndex;
     row2->InterfaceLuid.Info.IfType       = row.dwType;
     row2->InterfaceIndex                  = row.dwIndex;
-    row2->InterfaceGuid.Data1             = row.dwIndex;
+    ConvertInterfaceLuidToGuid( &row2->InterfaceLuid, &row2->InterfaceGuid );
     row2->Type                            = row.dwType;
     row2->Mtu                             = row.dwMtu;
     MultiByteToWideChar( CP_UNIXCP, 0, (const char *)row.bDescr, -1, row2->Description, len );
@@ -2393,15 +2448,25 @@ DWORD WINAPI GetExtendedTcpTable(PVOID pTcpTable, PDWORD pdwSize, BOOL bOrder,
 
     if (!pdwSize) return ERROR_INVALID_PARAMETER;
 
-    if (ulAf != WS_AF_INET)
-    {
-        FIXME("ulAf = %u not supported\n", ulAf);
-        return ERROR_NOT_SUPPORTED;
-    }
     if (TableClass >= TCP_TABLE_OWNER_MODULE_LISTENER)
         FIXME("module classes not fully supported\n");
 
-    if ((ret = build_tcp_table(TableClass, &table, bOrder, GetProcessHeap(), 0, &size)))
+    switch (ulAf)
+    {
+        case WS_AF_INET:
+            ret = build_tcp_table(TableClass, &table, bOrder, GetProcessHeap(), 0, &size);
+            break;
+
+        case WS_AF_INET6:
+            ret = build_tcp6_table(TableClass, &table, bOrder, GetProcessHeap(), 0, &size);
+            break;
+
+        default:
+            FIXME("ulAf = %u not supported\n", ulAf);
+            ret = ERROR_NOT_SUPPORTED;
+    }
+
+    if (ret)
         return ret;
 
     if (!pTcpTable || *pdwSize < size)
@@ -2761,6 +2826,18 @@ DWORD WINAPI NotifyIpInterfaceChange(ADDRESS_FAMILY family, PIPINTERFACE_CHANGE_
     return NO_ERROR;
 }
 
+/******************************************************************
+ *    NotifyRouteChange2 (IPHLPAPI.@)
+ */
+DWORD WINAPI NotifyRouteChange2(ADDRESS_FAMILY family, PIPFORWARD_CHANGE_CALLBACK callback, VOID* context,
+                                BOOLEAN init_notify, HANDLE* handle)
+{
+    FIXME("(family %d, callback %p, context %p, init_notify %d, handle %p): stub\n",
+        family, callback, context, init_notify, handle);
+    if (handle) *handle = NULL;
+    return NO_ERROR;
+}
+
 
 /******************************************************************
  *    NotifyRouteChange (IPHLPAPI.@)
@@ -2791,10 +2868,14 @@ DWORD WINAPI NotifyRouteChange(PHANDLE Handle, LPOVERLAPPED overlapped)
 DWORD WINAPI NotifyUnicastIpAddressChange(ADDRESS_FAMILY family, PUNICAST_IPADDRESS_CHANGE_CALLBACK callback,
                                           PVOID context, BOOLEAN init_notify, PHANDLE handle)
 {
-    FIXME("(family %d, callback %p, context %p, init_notify %d, handle %p): stub\n",
+    FIXME("(family %d, callback %p, context %p, init_notify %d, handle %p): semi-stub\n",
           family, callback, context, init_notify, handle);
     if (handle) *handle = NULL;
-    return ERROR_NOT_SUPPORTED;
+
+    if (init_notify)
+        callback(context, NULL, MibInitialNotification);
+
+    return NO_ERROR;
 }
 
 /******************************************************************
@@ -3054,8 +3135,8 @@ ULONG WINAPI GetTcpTable2(PMIB_TCPTABLE2 table, PULONG size, BOOL order)
  */
 ULONG WINAPI GetTcp6Table(PMIB_TCP6TABLE table, PULONG size, BOOL order)
 {
-    FIXME("pTcp6Table %p, size %p, order %d: stub\n", table, size, order);
-    return ERROR_NOT_SUPPORTED;
+    TRACE("(table %p, size %p, order %d)\n", table, size, order);
+    return GetExtendedTcpTable(table, size, order, WS_AF_INET6, TCP_TABLE_BASIC_ALL, 0);
 }
 
 /******************************************************************
@@ -3126,6 +3207,7 @@ DWORD WINAPI ConvertInterfaceLuidToGuid(const NET_LUID *luid, GUID *guid)
 
     memset( guid, 0, sizeof(*guid) );
     guid->Data1 = luid->Info.NetLuidIndex;
+    memcpy( guid->Data4+2, "NetDev", 6 );
     return NO_ERROR;
 }
 
@@ -3343,6 +3425,8 @@ DWORD WINAPI ParseNetworkString(const WCHAR *str, DWORD type,
                                 NET_ADDRESS_INFO *info, USHORT *port, BYTE *prefix_len)
 {
     IN_ADDR temp_addr4;
+    IN6_ADDR temp_addr6;
+    ULONG temp_scope;
     USHORT temp_port = 0;
     NTSTATUS status;
 
@@ -3383,10 +3467,44 @@ DWORD WINAPI ParseNetworkString(const WCHAR *str, DWORD type,
             return ERROR_SUCCESS;
         }
     }
+    if (type & NET_STRING_IPV6_ADDRESS)
+    {
+        status = RtlIpv6StringToAddressExW(str, &temp_addr6, &temp_scope, &temp_port);
+        if (SUCCEEDED(status) && !temp_port)
+        {
+            if (info)
+            {
+                info->Format = NET_ADDRESS_IPV6;
+                info->u.Ipv6Address.sin6_addr = temp_addr6;
+                info->u.Ipv6Address.sin6_scope_id = temp_scope;
+                info->u.Ipv6Address.sin6_port = 0;
+            }
+            if (port) *port = 0;
+            if (prefix_len) *prefix_len = 255;
+            return ERROR_SUCCESS;
+        }
+    }
+    if (type & NET_STRING_IPV6_SERVICE)
+    {
+        status = RtlIpv6StringToAddressExW(str, &temp_addr6, &temp_scope, &temp_port);
+        if (SUCCEEDED(status) && temp_port)
+        {
+            if (info)
+            {
+                info->Format = NET_ADDRESS_IPV6;
+                info->u.Ipv6Address.sin6_addr = temp_addr6;
+                info->u.Ipv6Address.sin6_scope_id = temp_scope;
+                info->u.Ipv6Address.sin6_port = temp_port;
+            }
+            if (port) *port = ntohs(temp_port);
+            if (prefix_len) *prefix_len = 255;
+            return ERROR_SUCCESS;
+        }
+    }
 
     if (info) info->Format = NET_ADDRESS_FORMAT_UNSPECIFIED;
 
-    if (type & ~(NET_STRING_IPV4_ADDRESS|NET_STRING_IPV4_SERVICE))
+    if (type & ~(NET_STRING_IPV4_ADDRESS|NET_STRING_IPV4_SERVICE|NET_STRING_IPV6_ADDRESS|NET_STRING_IPV6_SERVICE))
     {
         FIXME("Unimplemented type 0x%x\n", type);
         return ERROR_NOT_SUPPORTED;

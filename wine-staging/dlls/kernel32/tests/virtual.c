@@ -37,8 +37,6 @@
 
 static HINSTANCE hkernel32, hntdll;
 static SYSTEM_INFO si;
-static LPVOID (WINAPI *pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
-static BOOL   (WINAPI *pVirtualFreeEx)(HANDLE, LPVOID, SIZE_T, DWORD);
 static UINT   (WINAPI *pGetWriteWatch)(DWORD,LPVOID,SIZE_T,LPVOID*,ULONG_PTR*,ULONG*);
 static UINT   (WINAPI *pResetWriteWatch)(LPVOID,SIZE_T);
 static NTSTATUS (WINAPI *pNtAreMappedFilesTheSame)(PVOID,PVOID);
@@ -101,17 +99,11 @@ static void test_VirtualAllocEx(void)
     MEMORY_BASIC_INFORMATION info;
     HANDLE hProcess;
 
-    /* not exported in all windows-versions  */
-    if ((!pVirtualAllocEx) || (!pVirtualFreeEx)) {
-        win_skip("Virtual{Alloc,Free}Ex not available\n");
-        return;
-    }
-
     hProcess = create_target_process("sleep");
     ok(hProcess != NULL, "Can't start process\n");
 
     SetLastError(0xdeadbeef);
-    addr1 = pVirtualAllocEx(hProcess, NULL, alloc_size, MEM_COMMIT,
+    addr1 = VirtualAllocEx(hProcess, NULL, alloc_size, MEM_COMMIT,
                            PAGE_EXECUTE_READWRITE);
     ok(addr1 != NULL, "VirtualAllocEx error %u\n", GetLastError());
 
@@ -161,7 +153,7 @@ static void test_VirtualAllocEx(void)
     if (GetLastError() == ERROR_NOACCESS)
         ok( bytes_read == 0, "%lu bytes written\n", bytes_read );
 
-    b = pVirtualFreeEx(hProcess, addr1, 0, MEM_RELEASE);
+    b = VirtualFreeEx(hProcess, addr1, 0, MEM_RELEASE);
     ok(b != 0, "VirtualFreeEx, error %u\n", GetLastError());
 
     VirtualFree( src, 0, MEM_RELEASE );
@@ -172,12 +164,12 @@ static void test_VirtualAllocEx(void)
      */
 
     SetLastError(0xdeadbeef);
-    addr1 = pVirtualAllocEx(hProcess, 0, 0, MEM_RESERVE, PAGE_NOACCESS);
+    addr1 = VirtualAllocEx(hProcess, 0, 0, MEM_RESERVE, PAGE_NOACCESS);
     ok(addr1 == NULL, "VirtualAllocEx should fail on zero-sized allocation\n");
     ok(GetLastError() == ERROR_INVALID_PARAMETER,
        "got %u, expected ERROR_INVALID_PARAMETER\n", GetLastError());
 
-    addr1 = pVirtualAllocEx(hProcess, 0, 0xFFFC, MEM_RESERVE, PAGE_NOACCESS);
+    addr1 = VirtualAllocEx(hProcess, 0, 0xFFFC, MEM_RESERVE, PAGE_NOACCESS);
     ok(addr1 != NULL, "VirtualAllocEx failed\n");
 
     /* test a not committed memory */
@@ -197,7 +189,7 @@ static void test_VirtualAllocEx(void)
     ok(GetLastError() == ERROR_INVALID_ADDRESS,
         "got %u, expected ERROR_INVALID_ADDRESS\n", GetLastError());
 
-    addr2 = pVirtualAllocEx(hProcess, addr1, 0x1000, MEM_COMMIT, PAGE_NOACCESS);
+    addr2 = VirtualAllocEx(hProcess, addr1, 0x1000, MEM_COMMIT, PAGE_NOACCESS);
     ok(addr1 == addr2, "VirtualAllocEx failed\n");
 
     /* test a committed memory */
@@ -227,20 +219,20 @@ static void test_VirtualAllocEx(void)
     ok(VirtualProtectEx(hProcess, addr1, 0x1000, PAGE_READWRITE, &old_prot), "VirtualProtectEx failed\n");
     ok(old_prot == PAGE_READONLY, "wrong old protection: got %04x instead of PAGE_READONLY\n", old_prot);
 
-    ok(!pVirtualFreeEx(hProcess, addr1, 0x10000, 0),
+    ok(!VirtualFreeEx(hProcess, addr1, 0x10000, 0),
        "VirtualFreeEx should fail with type 0\n");
     ok(GetLastError() == ERROR_INVALID_PARAMETER,
         "got %u, expected ERROR_INVALID_PARAMETER\n", GetLastError());
 
-    ok(pVirtualFreeEx(hProcess, addr1, 0x10000, MEM_DECOMMIT), "VirtualFreeEx failed\n");
+    ok(VirtualFreeEx(hProcess, addr1, 0x10000, MEM_DECOMMIT), "VirtualFreeEx failed\n");
 
     /* if the type is MEM_RELEASE, size must be 0 */
-    ok(!pVirtualFreeEx(hProcess, addr1, 1, MEM_RELEASE),
+    ok(!VirtualFreeEx(hProcess, addr1, 1, MEM_RELEASE),
        "VirtualFreeEx should fail\n");
     ok(GetLastError() == ERROR_INVALID_PARAMETER,
         "got %u, expected ERROR_INVALID_PARAMETER\n", GetLastError());
 
-    ok(pVirtualFreeEx(hProcess, addr1, 0, MEM_RELEASE), "VirtualFreeEx failed\n");
+    ok(VirtualFreeEx(hProcess, addr1, 0, MEM_RELEASE), "VirtualFreeEx failed\n");
 
     TerminateProcess(hProcess, 0);
     CloseHandle(hProcess);
@@ -2882,8 +2874,8 @@ static void test_atl_thunk_emulation( ULONG dep_flags )
     success = VirtualProtect( base, size, PAGE_READWRITE, &old_prot );
     ok( success, "VirtualProtect failed %u\n", GetLastError() );
 
-    ret = (DWORD_PTR)atl5_test_func;
-    ret = call_proc_excpt( (void *)base, &ret - 1 );
+    results[1] = atl5_test_func;
+    ret = call_proc_excpt( (void *)base, results );
     /* FIXME: We don't check the content of the registers EAX/ECX yet */
     ok( ret == 44, "call returned wrong result, expected 44, got %d\n", ret );
     ok( num_guard_page_calls == 0, "expected no STATUS_GUARD_PAGE_VIOLATION exception, got %d exceptions\n", num_guard_page_calls );
@@ -3589,9 +3581,7 @@ static void test_CreateFileMapping_protection(void)
                 SetLastError(0xdeadbeef);
                 ret = VirtualQuery(base, &info, sizeof(info));
                 ok(ret, "VirtualQuery failed %d\n", GetLastError());
-                /* FIXME: remove the condition below once Wine is fixed */
-                todo_wine_if (td[i].prot == PAGE_WRITECOPY || td[i].prot == PAGE_EXECUTE_WRITECOPY)
-                    ok(info.Protect == td[i].prot_after_write, "%d: got %#x != expected %#x\n", i, info.Protect, td[i].prot_after_write);
+                ok(info.Protect == td[i].prot_after_write, "%d: got %#x != expected %#x\n", i, info.Protect, td[i].prot_after_write);
             }
         }
         else
@@ -3605,9 +3595,7 @@ static void test_CreateFileMapping_protection(void)
         SetLastError(0xdeadbeef);
         ret = VirtualProtect(base, si.dwPageSize, PAGE_NOACCESS, &old_prot);
         ok(ret, "%d: VirtualProtect error %d\n", i, GetLastError());
-        /* FIXME: remove the condition below once Wine is fixed */
-        todo_wine_if (td[i].prot == PAGE_WRITECOPY || td[i].prot == PAGE_EXECUTE_WRITECOPY)
-            ok(old_prot == td[i].prot_after_write, "%d: got %#x != expected %#x\n", i, old_prot, td[i].prot_after_write);
+        ok(old_prot == td[i].prot_after_write, "%d: got %#x != expected %#x\n", i, old_prot, td[i].prot_after_write);
 
         UnmapViewOfFile(base);
     }
@@ -3960,15 +3948,12 @@ static void test_mapping( HANDLE hfile, DWORD sec_flags, BOOL readonly )
                         continue;
                     }
 
-                    todo_wine_if(readonly && page_prot[k] == PAGE_WRITECOPY && view[j].prot != PAGE_WRITECOPY)
                     ok(ret, "VirtualProtect error %d, map %#x, view %#x, requested prot %#x\n", GetLastError(), page_prot[i], view[j].prot, page_prot[k]);
-                    todo_wine_if(readonly && page_prot[k] == PAGE_WRITECOPY && view[j].prot != PAGE_WRITECOPY)
                     ok(old_prot == prev_prot, "got %#x, expected %#x\n", old_prot, prev_prot);
                     prev_prot = actual_prot;
 
                     ret = VirtualQuery(base, &info, sizeof(info));
                     ok(ret, "%d: VirtualQuery failed %d\n", j, GetLastError());
-                    todo_wine_if(readonly && page_prot[k] == PAGE_WRITECOPY && view[j].prot != PAGE_WRITECOPY)
                     ok(info.Protect == actual_prot,
                        "VirtualProtect wrong prot, map %#x, view %#x, requested prot %#x got %#x\n",
                        page_prot[i], view[j].prot, page_prot[k], info.Protect );
@@ -4023,15 +4008,12 @@ static void test_mapping( HANDLE hfile, DWORD sec_flags, BOOL readonly )
             if (!anon_mapping && is_compatible_protection(alloc_prot, PAGE_WRITECOPY))
             {
                 ret = VirtualProtect(base, sec_flags & SEC_IMAGE ? si.dwPageSize : 2*si.dwPageSize, PAGE_WRITECOPY, &old_prot);
-                todo_wine_if(readonly && view[j].prot != PAGE_WRITECOPY)
                 ok(ret, "VirtualProtect error %d, map %#x, view %#x\n", GetLastError(), page_prot[i], view[j].prot);
                 if (ret) *(DWORD*)base = 0xdeadbeef;
                 ret = VirtualQuery(base, &info, sizeof(info));
                 ok(ret, "%d: VirtualQuery failed %d\n", j, GetLastError());
-                todo_wine
                 ok(info.Protect == PAGE_READWRITE, "VirtualProtect wrong prot, map %#x, view %#x got %#x\n",
                    page_prot[i], view[j].prot, info.Protect );
-                todo_wine_if (!(sec_flags & SEC_IMAGE))
                 ok(info.RegionSize == si.dwPageSize, "wrong region size %#lx after write, map %#x, view %#x got %#x\n",
                    info.RegionSize, page_prot[i], view[j].prot, info.Protect );
 
@@ -4042,7 +4024,6 @@ static void test_mapping( HANDLE hfile, DWORD sec_flags, BOOL readonly )
                 {
                     ret = VirtualQuery((char*)base + si.dwPageSize, &info, sizeof(info));
                     ok(ret, "%d: VirtualQuery failed %d\n", j, GetLastError());
-                    todo_wine_if(readonly && view[j].prot != PAGE_WRITECOPY)
                     ok(info.Protect == PAGE_WRITECOPY, "wrong prot, map %#x, view %#x got %#x\n",
                        page_prot[i], view[j].prot, info.Protect);
                 }
@@ -4062,14 +4043,11 @@ static void test_mapping( HANDLE hfile, DWORD sec_flags, BOOL readonly )
                             continue;
                         }
 
-                        todo_wine_if(readonly && page_prot[k] == PAGE_WRITECOPY && view[j].prot != PAGE_WRITECOPY)
                         ok(ret, "VirtualProtect error %d, map %#x, view %#x, requested prot %#x\n", GetLastError(), page_prot[i], view[j].prot, page_prot[k]);
-                        todo_wine_if(readonly && page_prot[k] == PAGE_WRITECOPY && view[j].prot != PAGE_WRITECOPY)
                         ok(old_prot == prev_prot, "got %#x, expected %#x\n", old_prot, prev_prot);
 
                         ret = VirtualQuery(base, &info, sizeof(info));
                         ok(ret, "%d: VirtualQuery failed %d\n", j, GetLastError());
-                        todo_wine_if( map_prot_written( page_prot[k] ) != actual_prot )
                         ok(info.Protect == map_prot_written( page_prot[k] ),
                            "VirtualProtect wrong prot, map %#x, view %#x, requested prot %#x got %#x\n",
                            page_prot[i], view[j].prot, page_prot[k], info.Protect );
@@ -4110,7 +4088,6 @@ static void test_mappings(void)
     SetFilePointer(hfile, 0, NULL, FILE_BEGIN);
     ok(ReadFile(hfile, &data, sizeof(data), &num_bytes, NULL), "ReadFile failed\n");
     ok(num_bytes == sizeof(data), "num_bytes = %d\n", num_bytes);
-    todo_wine
     ok(!data, "data = %x\n", data);
 
     CloseHandle( hfile );
@@ -4171,7 +4148,7 @@ static void test_shared_memory(BOOL is_child)
         sprintf(cmdline, "\"%s\" virtual sharedmem", argv[0]);
         ret = CreateProcessA(argv[0], cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
         ok(ret, "CreateProcess(%s) error %d\n", cmdline, GetLastError());
-        winetest_wait_child_process(pi.hProcess);
+        wait_child_process(pi.hProcess);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
     }
@@ -4211,7 +4188,7 @@ static void test_shared_memory_ro(BOOL is_child, DWORD child_access)
         sprintf(cmdline, "\"%s\" virtual sharedmemro %x", argv[0], child_access);
         ret = CreateProcessA(argv[0], cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
         ok(ret, "CreateProcess(%s) error %d\n", cmdline, GetLastError());
-        winetest_wait_child_process(pi.hProcess);
+        wait_child_process(pi.hProcess);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
 
@@ -4493,8 +4470,6 @@ START_TEST(virtual)
     hkernel32 = GetModuleHandleA("kernel32.dll");
     hntdll    = GetModuleHandleA("ntdll.dll");
 
-    pVirtualAllocEx = (void *) GetProcAddress(hkernel32, "VirtualAllocEx");
-    pVirtualFreeEx = (void *) GetProcAddress(hkernel32, "VirtualFreeEx");
     pGetWriteWatch = (void *) GetProcAddress(hkernel32, "GetWriteWatch");
     pResetWriteWatch = (void *) GetProcAddress(hkernel32, "ResetWriteWatch");
     pGetProcessDEPPolicy = (void *)GetProcAddress( hkernel32, "GetProcessDEPPolicy" );

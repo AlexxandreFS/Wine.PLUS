@@ -29,8 +29,7 @@
 
 #include "windef.h"
 #include "winbase.h"
-#include "winternl.h"
-#include "wine/library.h"
+#include "winnls.h"
 #include "wine/debug.h"
 #include "wine/list.h"
 #include "wine/wgl.h"
@@ -428,7 +427,7 @@ static BOOL load_functions(void)
 
     for (i = 0; i < sizeof(libname)/sizeof(libname[0]); i++)
     {
-        cuda_handle = wine_dlopen(libname[i], RTLD_NOW, NULL, 0);
+        cuda_handle = dlopen(libname[i], RTLD_NOW);
         if (cuda_handle) break;
     }
 
@@ -438,8 +437,8 @@ static BOOL load_functions(void)
         return FALSE;
     }
 
-    #define LOAD_FUNCPTR(f) if((p##f = wine_dlsym(cuda_handle, #f, NULL, 0)) == NULL){FIXME("Can't find symbol %s\n", #f); return FALSE;}
-    #define TRY_LOAD_FUNCPTR(f) p##f = wine_dlsym(cuda_handle, #f, NULL, 0)
+    #define LOAD_FUNCPTR(f) if((p##f = dlsym(cuda_handle, #f)) == NULL){FIXME("Can't find symbol %s\n", #f); return FALSE;}
+    #define TRY_LOAD_FUNCPTR(f) p##f = dlsym(cuda_handle, #f)
 
     LOAD_FUNCPTR(cuArray3DCreate);
     LOAD_FUNCPTR(cuArray3DCreate_v2);
@@ -1904,34 +1903,10 @@ CUresult WINAPI wine_cuModuleGetTexRef(CUtexref *pTexRef, CUmodule hmod, const c
     return pcuModuleGetTexRef(pTexRef, hmod, name);
 }
 
-/* FIXME: Should we pay attention to AreFileApisANSI() ? */
-static BOOL get_unix_path(ANSI_STRING *unix_name, const char *filename)
-{
-    UNICODE_STRING dospathW, ntpathW;
-    ANSI_STRING dospath;
-    NTSTATUS status;
-
-    RtlInitAnsiString(&dospath, filename);
-
-    if (RtlAnsiStringToUnicodeString(&dospathW, &dospath, TRUE))
-        return FALSE;
-
-    if (!RtlDosPathNameToNtPathName_U(dospathW.Buffer, &ntpathW, NULL, NULL))
-    {
-        RtlFreeUnicodeString(&dospathW);
-        return FALSE;
-    }
-
-    status = wine_nt_to_unix_file_name(&ntpathW, unix_name, FILE_OPEN, FALSE);
-
-    RtlFreeUnicodeString(&ntpathW);
-    RtlFreeUnicodeString(&dospathW);
-    return !status;
-}
-
 CUresult WINAPI wine_cuModuleLoad(CUmodule *module, const char *fname)
 {
-    ANSI_STRING unix_name;
+    WCHAR filenameW[MAX_PATH];
+    char *unix_name;
     CUresult ret;
 
     TRACE("(%p, %s)\n", module, fname);
@@ -1939,11 +1914,11 @@ CUresult WINAPI wine_cuModuleLoad(CUmodule *module, const char *fname)
     if (!fname)
         return CUDA_ERROR_INVALID_VALUE;
 
-    if (!get_unix_path(&unix_name, fname))
-        return CUDA_ERROR_FILE_NOT_FOUND;
+    MultiByteToWideChar(CP_ACP, 0, fname, -1, filenameW, ARRAY_SIZE(filenameW));
+    unix_name = wine_get_unix_file_name( filenameW );
 
-    ret = pcuModuleLoad(module, unix_name.Buffer);
-    RtlFreeAnsiString(&unix_name);
+    ret = pcuModuleLoad(module, unix_name);
+    HeapFree(GetProcessHeap(), 0, unix_name);
     return ret;
 }
 
@@ -2977,7 +2952,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
             break;
         case DLL_PROCESS_DETACH:
             if (reserved) break;
-            if (cuda_handle) wine_dlclose(cuda_handle, NULL, 0);
+            if (cuda_handle) dlclose(cuda_handle);
             break;
         case DLL_THREAD_ATTACH:
         case DLL_THREAD_DETACH:

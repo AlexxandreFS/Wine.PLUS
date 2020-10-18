@@ -51,11 +51,11 @@
 #include "ole2.h"
 #include "rpcproxy.h"
 #include "msxml.h"
+#include "msxml2.h"
 #include "msxml6.h"
 
 #include "wine/unicode.h"
 #include "wine/debug.h"
-#include "wine/library.h"
 
 #include "msxml_private.h"
 
@@ -190,12 +190,12 @@ static void init_libxslt(void)
 #ifdef SONAME_LIBXSLT
     void (*pxsltInit)(void); /* Missing in libxslt <= 1.1.14 */
 
-    libxslt_handle = wine_dlopen(SONAME_LIBXSLT, RTLD_NOW, NULL, 0);
+    libxslt_handle = dlopen(SONAME_LIBXSLT, RTLD_NOW);
     if (!libxslt_handle)
         return;
 
 #define LOAD_FUNCPTR(f, needed) \
-    if ((p##f = wine_dlsym(libxslt_handle, #f, NULL, 0)) == NULL) \
+    if ((p##f = dlsym(libxslt_handle, #f)) == NULL) \
         if (needed) { WARN("Can't find symbol %s\n", #f); goto sym_not_found; }
     LOAD_FUNCPTR(xsltInit, 0);
     LOAD_FUNCPTR(xsltApplyStylesheet, 1);
@@ -225,7 +225,7 @@ static void init_libxslt(void)
     return;
 
  sym_not_found:
-    wine_dlclose(libxslt_handle, NULL, 0);
+    dlclose(libxslt_handle);
     libxslt_handle = NULL;
 #endif
 }
@@ -394,6 +394,29 @@ static void init_char_encoders(void)
 
 #endif  /* HAVE_LIBXML2 */
 
+const CLSID* DOMDocument_version(MSXML_VERSION v)
+{
+    switch (v)
+    {
+    default:
+    case MSXML_DEFAULT: return &CLSID_DOMDocument;
+    case MSXML3: return &CLSID_DOMDocument30;
+    case MSXML4: return &CLSID_DOMDocument40;
+    case MSXML6: return &CLSID_DOMDocument60;
+    }
+}
+
+const CLSID* SchemaCache_version(MSXML_VERSION v)
+{
+    switch (v)
+    {
+    default:
+    case MSXML_DEFAULT: return &CLSID_XMLSchemaCache;
+    case MSXML3: return &CLSID_XMLSchemaCache30;
+    case MSXML4: return &CLSID_XMLSchemaCache40;
+    case MSXML6: return &CLSID_XMLSchemaCache60;
+    }
+}
 
 HRESULT WINAPI DllCanUnloadNow(void)
 {
@@ -435,7 +458,7 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID reserved)
         if (libxslt_handle)
         {
             pxsltCleanupGlobals();
-            wine_dlclose(libxslt_handle, NULL, 0);
+            dlclose(libxslt_handle);
         }
 #endif
         /* Restore default Callbacks */

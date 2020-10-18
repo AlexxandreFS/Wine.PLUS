@@ -48,6 +48,7 @@
 
 typedef struct _jsval_t jsval_t;
 typedef struct _jsstr_t jsstr_t;
+typedef struct _jsexcept_t jsexcept_t;
 typedef struct _script_ctx_t script_ctx_t;
 typedef struct _dispex_prop_t dispex_prop_t;
 typedef struct _property_desc_t property_desc_t;
@@ -203,6 +204,20 @@ typedef HRESULT (*builtin_setter_t)(script_ctx_t*,jsdisp_t*,jsval_t);
 
 HRESULT builtin_set_const(script_ctx_t*,jsdisp_t*,jsval_t) DECLSPEC_HIDDEN;
 
+typedef struct named_item_t {
+    jsdisp_t *script_obj;
+    IDispatch *disp;
+    unsigned ref;
+    DWORD flags;
+    LPWSTR name;
+
+    struct list entry;
+} named_item_t;
+
+HRESULT create_named_item_script_obj(script_ctx_t*,named_item_t*) DECLSPEC_HIDDEN;
+named_item_t *lookup_named_item(script_ctx_t*,const WCHAR*,unsigned) DECLSPEC_HIDDEN;
+void release_named_item(named_item_t*) DECLSPEC_HIDDEN;
+
 typedef struct {
     const WCHAR *name;
     builtin_invoke_t invoke;
@@ -299,6 +314,7 @@ HRESULT jsdisp_get_own_property(jsdisp_t*,const WCHAR*,BOOL,property_desc_t*) DE
 HRESULT jsdisp_define_property(jsdisp_t*,const WCHAR*,property_desc_t*) DECLSPEC_HIDDEN;
 HRESULT jsdisp_define_data_property(jsdisp_t*,const WCHAR*,unsigned,jsval_t) DECLSPEC_HIDDEN;
 HRESULT jsdisp_next_prop(jsdisp_t*,DISPID,BOOL,DISPID*) DECLSPEC_HIDDEN;
+HRESULT jsdisp_get_prop_name(jsdisp_t*,DISPID,jsstr_t**);
 
 HRESULT create_builtin_function(script_ctx_t*,builtin_invoke_t,const WCHAR*,const builtin_info_t*,DWORD,
         jsdisp_t*,jsdisp_t**) DECLSPEC_HIDDEN;
@@ -311,14 +327,8 @@ HRESULT Function_get_value(script_ctx_t*,jsdisp_t*,jsval_t*) DECLSPEC_HIDDEN;
 struct _function_code_t *Function_get_code(jsdisp_t*) DECLSPEC_HIDDEN;
 #define DEFAULT_FUNCTION_VALUE {NULL, Function_value,0, Function_get_value}
 
-HRESULT throw_eval_error(script_ctx_t*,HRESULT,const WCHAR*) DECLSPEC_HIDDEN;
-HRESULT throw_generic_error(script_ctx_t*,HRESULT,const WCHAR*) DECLSPEC_HIDDEN;
-HRESULT throw_range_error(script_ctx_t*,HRESULT,const WCHAR*) DECLSPEC_HIDDEN;
-HRESULT throw_reference_error(script_ctx_t*,HRESULT,const WCHAR*) DECLSPEC_HIDDEN;
-HRESULT throw_regexp_error(script_ctx_t*,HRESULT,const WCHAR*) DECLSPEC_HIDDEN;
-HRESULT throw_syntax_error(script_ctx_t*,HRESULT,const WCHAR*) DECLSPEC_HIDDEN;
-HRESULT throw_type_error(script_ctx_t*,HRESULT,const WCHAR*) DECLSPEC_HIDDEN;
-HRESULT throw_uri_error(script_ctx_t*,HRESULT,const WCHAR*) DECLSPEC_HIDDEN;
+HRESULT throw_error(script_ctx_t*,HRESULT,const WCHAR*) DECLSPEC_HIDDEN;
+jsdisp_t *create_builtin_error(script_ctx_t *ctx) DECLSPEC_HIDDEN;
 
 HRESULT create_object(script_ctx_t*,jsdisp_t*,jsdisp_t**) DECLSPEC_HIDDEN;
 HRESULT create_math(script_ctx_t*,jsdisp_t**) DECLSPEC_HIDDEN;
@@ -361,14 +371,6 @@ static inline BOOL is_digit(WCHAR c)
     return '0' <= c && c <= '9';
 }
 
-typedef struct named_item_t {
-    IDispatch *disp;
-    DWORD flags;
-    LPWSTR name;
-
-    struct named_item_t *next;
-} named_item_t;
-
 typedef struct _cc_var_t cc_var_t;
 
 typedef struct {
@@ -399,11 +401,6 @@ struct _property_desc_t {
 };
 
 typedef struct {
-    EXCEPINFO ei;
-    jsval_t val;
-} jsexcept_t;
-
-typedef struct {
     unsigned index;
     unsigned length;
 } match_result_t;
@@ -415,7 +412,7 @@ struct _script_ctx_t {
     IActiveScript *active_script;
 
     struct _call_frame_t *call_ctx;
-    named_item_t *named_items;
+    struct list named_items;
     IActiveScriptSite *site;
     IInternetHostSecurityManager *secmgr;
     DWORD safeopt;
@@ -424,14 +421,11 @@ struct _script_ctx_t {
     LCID lcid;
     cc_ctx_t *cc;
     JSCaller *jscaller;
-    jsexcept_t ei;
+    jsexcept_t *ei;
 
     heap_pool_t tmp_heap;
 
-    IDispatch *host_global;
-
     jsval_t *stack;
-    unsigned stack_size;
     unsigned stack_top;
     jsval_t acc;
 
@@ -462,7 +456,6 @@ struct _script_ctx_t {
 };
 
 void script_release(script_ctx_t*) DECLSPEC_HIDDEN;
-void clear_ei(script_ctx_t*) DECLSPEC_HIDDEN;
 
 static inline void script_addref(script_ctx_t *ctx)
 {
@@ -530,6 +523,7 @@ static inline DWORD make_grfdex(script_ctx_t *ctx, DWORD flags)
 #define JS_E_TO_PRIMITIVE            MAKE_JSERROR(IDS_TO_PRIMITIVE)
 #define JS_E_INVALIDARG              MAKE_JSERROR(IDS_INVALID_CALL_ARG)
 #define JS_E_SUBSCRIPT_OUT_OF_RANGE  MAKE_JSERROR(IDS_SUBSCRIPT_OUT_OF_RANGE)
+#define JS_E_STACK_OVERFLOW          MAKE_JSERROR(IDS_STACK_OVERFLOW)
 #define JS_E_OBJECT_REQUIRED         MAKE_JSERROR(IDS_OBJECT_REQUIRED)
 #define JS_E_CANNOT_CREATE_OBJ       MAKE_JSERROR(IDS_CREATE_OBJ_ERROR)
 #define JS_E_INVALID_PROPERTY        MAKE_JSERROR(IDS_NO_PROPERTY)
@@ -561,8 +555,10 @@ static inline DWORD make_grfdex(script_ctx_t *ctx, DWORD flags)
 #define JS_E_VBARRAY_EXPECTED        MAKE_JSERROR(IDS_NOT_VBARRAY)
 #define JS_E_INVALID_DELETE          MAKE_JSERROR(IDS_INVALID_DELETE)
 #define JS_E_JSCRIPT_EXPECTED        MAKE_JSERROR(IDS_JSCRIPT_EXPECTED)
-#define JS_E_ENUMERATOR_EXPECTED     MAKE_JSERROR(IDS_NOT_ENUMERATOR)
+#define JS_E_ENUMERATOR_EXPECTED     MAKE_JSERROR(IDS_ENUMERATOR_EXPECTED)
+#define JS_E_REGEXP_EXPECTED         MAKE_JSERROR(IDS_REGEXP_EXPECTED)
 #define JS_E_REGEXP_SYNTAX           MAKE_JSERROR(IDS_REGEXP_SYNTAX_ERROR)
+#define JS_E_EXCEPTION_THROWN        MAKE_JSERROR(IDS_EXCEPTION_THROWN)
 #define JS_E_INVALID_URI_CODING      MAKE_JSERROR(IDS_URI_INVALID_CODING)
 #define JS_E_INVALID_URI_CHAR        MAKE_JSERROR(IDS_URI_INVALID_CHAR)
 #define JS_E_FRACTION_DIGITS_OUT_OF_RANGE MAKE_JSERROR(IDS_FRACTION_DIGITS_OUT_OF_RANGE)

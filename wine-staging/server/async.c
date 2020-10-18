@@ -70,19 +70,18 @@ static const struct object_ops async_ops =
     add_queue,                 /* add_queue */
     remove_queue,              /* remove_queue */
     async_signaled,            /* signaled */
-    NULL,                      /* get_esync_fd */
     async_satisfied,           /* satisfied */
     no_signal,                 /* signal */
     no_get_fd,                 /* get_fd */
     no_map_access,             /* map_access */
     default_get_sd,            /* get_sd */
     default_set_sd,            /* set_sd */
+    no_get_full_name,          /* get_full_name */
     no_lookup_name,            /* lookup_name */
     no_link_name,              /* link_name */
     NULL,                      /* unlink_name */
     no_open_file,              /* open_file */
     no_kernel_obj_list,        /* get_kernel_obj_list */
-    no_alloc_handle,           /* alloc_handle */
     no_close_handle,           /* close_handle */
     async_destroy              /* destroy */
 };
@@ -401,11 +400,11 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
         {
             apc_call_t data;
             memset( &data, 0, sizeof(data) );
-            data.type         = APC_USER;
-            data.user.func    = async->data.apc;
-            data.user.args[0] = async->data.apc_context;
-            data.user.args[1] = async->data.iosb;
-            data.user.args[2] = 0;
+            data.type              = APC_USER;
+            data.user.user.func    = async->data.apc;
+            data.user.user.args[0] = async->data.apc_context;
+            data.user.user.args[1] = async->data.iosb;
+            data.user.user.args[2] = 0;
             thread_queue_apc( NULL, async->thread, NULL, &data );
         }
         else if (async->data.apc_context && (async->pending ||
@@ -485,19 +484,18 @@ static const struct object_ops iosb_ops =
     no_add_queue,             /* add_queue */
     NULL,                     /* remove_queue */
     NULL,                     /* signaled */
-    NULL,                     /* get_esync_fd */
     NULL,                     /* satisfied */
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
     no_map_access,            /* map_access */
     default_get_sd,           /* get_sd */
     default_set_sd,           /* set_sd */
+    no_get_full_name,         /* get_full_name */
     no_lookup_name,           /* lookup_name */
     no_link_name,             /* link_name */
     NULL,                     /* unlink_name */
     no_open_file,             /* open_file */
     no_kernel_obj_list,       /* get_kernel_obj_list */
-    no_alloc_handle,          /* alloc_handle */
     no_close_handle,          /* close_handle */
     iosb_destroy              /* destroy */
 };

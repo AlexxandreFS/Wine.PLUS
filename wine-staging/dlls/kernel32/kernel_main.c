@@ -18,10 +18,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-#include "wine/port.h"
-
-#include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <string.h>
@@ -33,18 +29,18 @@
 #include "wincon.h"
 #include "winternl.h"
 
-#include "wine/library.h"
 #include "kernel_private.h"
 #include "console_private.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(process);
 
-extern int CDECL __wine_set_signal_handler(unsigned, int (*)(unsigned));
+static STARTUPINFOA startup_infoA;
 
 /***********************************************************************
  *           set_entry_point
  */
+#ifdef __i386__
 static void set_entry_point( HMODULE module, const char *name, DWORD rva )
 {
     IMAGE_EXPORT_DIRECTORY *exports;
@@ -65,9 +61,12 @@ static void set_entry_point( HMODULE module, const char *name, DWORD rva )
             if (!(res = strcmp( ename, name )))
             {
                 WORD ordinal = ordinals[pos];
-                assert( ordinal < exports->NumberOfFunctions );
+                DWORD oldprot;
+
                 TRACE( "setting %s at %p to %08x\n", name, &functions[ordinal], rva );
+                VirtualProtect( functions + ordinal, sizeof(*functions), PAGE_READWRITE, &oldprot );
                 functions[ordinal] = rva;
+                VirtualProtect( functions + ordinal, sizeof(*functions), oldprot, NULL );
                 return;
             }
             if (res > 0) max = pos - 1;
@@ -75,7 +74,47 @@ static void set_entry_point( HMODULE module, const char *name, DWORD rva )
         }
     }
 }
+#endif
 
+
+/***********************************************************************
+ *              GetStartupInfoA         (KERNEL32.@)
+ */
+VOID WINAPI GetStartupInfoA( LPSTARTUPINFOA info )
+{
+    *info = startup_infoA;
+}
+
+static void copy_startup_info(void)
+{
+    RTL_USER_PROCESS_PARAMETERS* rupp;
+    ANSI_STRING         ansi;
+
+    RtlAcquirePebLock();
+
+    rupp = NtCurrentTeb()->Peb->ProcessParameters;
+
+    startup_infoA.cb                   = sizeof(startup_infoA);
+    startup_infoA.lpReserved           = NULL;
+    startup_infoA.lpDesktop = !RtlUnicodeStringToAnsiString( &ansi, &rupp->Desktop, TRUE ) ? ansi.Buffer : NULL;
+    startup_infoA.lpTitle = !RtlUnicodeStringToAnsiString( &ansi, &rupp->WindowTitle, TRUE ) ? ansi.Buffer : NULL;
+    startup_infoA.dwX                  = rupp->dwX;
+    startup_infoA.dwY                  = rupp->dwY;
+    startup_infoA.dwXSize              = rupp->dwXSize;
+    startup_infoA.dwYSize              = rupp->dwYSize;
+    startup_infoA.dwXCountChars        = rupp->dwXCountChars;
+    startup_infoA.dwYCountChars        = rupp->dwYCountChars;
+    startup_infoA.dwFillAttribute      = rupp->dwFillAttribute;
+    startup_infoA.dwFlags              = rupp->dwFlags;
+    startup_infoA.wShowWindow          = rupp->wShowWindow;
+    startup_infoA.cbReserved2          = rupp->RuntimeInfo.MaximumLength;
+    startup_infoA.lpReserved2          = rupp->RuntimeInfo.MaximumLength ? (void*)rupp->RuntimeInfo.Buffer : NULL;
+    startup_infoA.hStdInput            = rupp->hStdInput ? rupp->hStdInput : INVALID_HANDLE_VALUE;
+    startup_infoA.hStdOutput           = rupp->hStdOutput ? rupp->hStdOutput : INVALID_HANDLE_VALUE;
+    startup_infoA.hStdError            = rupp->hStdError ? rupp->hStdError : INVALID_HANDLE_VALUE;
+
+    RtlReleasePebLock();
+}
 
 /***********************************************************************
  *           KERNEL process initialisation routine
@@ -89,14 +128,11 @@ static BOOL process_attach( HMODULE module )
 
     NtQuerySystemInformation( SystemBasicInformation, &system_info, sizeof(system_info), NULL );
 
-    /* Setup computer name */
-    COMPUTERNAME_Init();
-
     CONSOLE_Init(params);
 
-    /* copy process information from ntdll */
-    ENV_CopyStartupInformation();
+    copy_startup_info();
 
+#ifdef __i386__
     if (!(GetVersion() & 0x80000000))
     {
         /* Securom checks for this one when version is NT */
@@ -104,27 +140,12 @@ static BOOL process_attach( HMODULE module )
     }
     else
     {
-        LDR_MODULE *ldr;
+        LDR_DATA_TABLE_ENTRY *ldr;
 
         if (LdrFindEntryForAddress( GetModuleHandleW( 0 ), &ldr ) || !(ldr->Flags & LDR_WINE_INTERNAL))
             LoadLibraryA( "krnl386.exe16" );
     }
-
-    /* finish the process initialisation for console bits, if needed */
-    __wine_set_signal_handler(SIGINT, CONSOLE_HandleCtrlC);
-
-    if (params->ConsoleHandle == KERNEL32_CONSOLE_ALLOC)
-    {
-        HMODULE mod = GetModuleHandleA(0);
-        if (RtlImageNtHeader(mod)->OptionalHeader.Subsystem == IMAGE_SUBSYSTEM_WINDOWS_CUI)
-            AllocConsole();
-    }
-    /* else TODO for DETACHED_PROCESS:
-     * 1/ inherit console + handles
-     * 2/ create std handles, if handles are not inherited
-     * TBD when not using wineserver handles for console handles
-     */
-
+#endif
     return TRUE;
 }
 
@@ -140,7 +161,6 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
         return process_attach( hinst );
     case DLL_PROCESS_DETACH:
         WritePrivateProfileSectionW( NULL, NULL, NULL );
-        CONSOLE_Exit();
         break;
     }
     return TRUE;

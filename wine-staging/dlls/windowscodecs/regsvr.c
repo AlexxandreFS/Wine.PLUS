@@ -1140,6 +1140,18 @@ static struct decoder_pattern const bmp_patterns[] = {
     {0}
 };
 
+static const BYTE dds_magic[] = "DDS ";
+
+static GUID const * const dds_formats[] = {
+    &GUID_WICPixelFormat32bppBGRA,
+    NULL
+};
+
+static struct decoder_pattern const dds_patterns[] = {
+    {4,0,dds_magic,mask_all,0},
+    {0}
+};
+
 static const BYTE gif87a_magic[6] = "GIF87a";
 static const BYTE gif89a_magic[6] = "GIF89a";
 
@@ -1177,6 +1189,48 @@ static GUID const * const jpeg_formats[] = {
 
 static struct decoder_pattern const jpeg_patterns[] = {
     {2,0,jpeg_magic,mask_all,0},
+    {0}
+};
+
+static const BYTE wmp_magic_v0[] = {0x49, 0x49, 0xbc, 0x00};
+static const BYTE wmp_magic_v1[] = {0x49, 0x49, 0xbc, 0x01};
+
+static GUID const * const wmp_formats[] = {
+    &GUID_WICPixelFormat128bppRGBAFixedPoint,
+    &GUID_WICPixelFormat128bppRGBAFloat,
+    &GUID_WICPixelFormat128bppRGBFloat,
+    &GUID_WICPixelFormat16bppBGR555,
+    &GUID_WICPixelFormat16bppBGR565,
+    &GUID_WICPixelFormat16bppGray,
+    &GUID_WICPixelFormat16bppGrayFixedPoint,
+    &GUID_WICPixelFormat16bppGrayHalf,
+    &GUID_WICPixelFormat24bppBGR,
+    &GUID_WICPixelFormat24bppRGB,
+    &GUID_WICPixelFormat32bppBGR,
+    &GUID_WICPixelFormat32bppBGR101010,
+    &GUID_WICPixelFormat32bppBGRA,
+    &GUID_WICPixelFormat32bppCMYK,
+    &GUID_WICPixelFormat32bppGrayFixedPoint,
+    &GUID_WICPixelFormat32bppGrayFloat,
+    &GUID_WICPixelFormat32bppRGBE,
+    &GUID_WICPixelFormat40bppCMYKAlpha,
+    &GUID_WICPixelFormat48bppRGB,
+    &GUID_WICPixelFormat48bppRGBFixedPoint,
+    &GUID_WICPixelFormat48bppRGBHalf,
+    &GUID_WICPixelFormat64bppCMYK,
+    &GUID_WICPixelFormat64bppRGBA,
+    &GUID_WICPixelFormat64bppRGBAFixedPoint,
+    &GUID_WICPixelFormat64bppRGBAHalf,
+    &GUID_WICPixelFormat80bppCMYKAlpha,
+    &GUID_WICPixelFormat8bppGray,
+    &GUID_WICPixelFormat96bppRGBFixedPoint,
+    &GUID_WICPixelFormatBlackWhite,
+    NULL
+};
+
+static struct decoder_pattern const wmp_patterns[] = {
+    {4,0,wmp_magic_v0,mask_all,0},
+    {4,0,wmp_magic_v1,mask_all,0},
     {0}
 };
 
@@ -1226,7 +1280,9 @@ static GUID const * const tiff_decode_formats[] = {
     &GUID_WICPixelFormat64bppPRGBA,
     &GUID_WICPixelFormat32bppCMYK,
     &GUID_WICPixelFormat64bppCMYK,
+    &GUID_WICPixelFormat96bppRGBFloat,
     &GUID_WICPixelFormat128bppRGBAFloat,
+    &GUID_WICPixelFormat128bppPRGBAFloat,
     NULL
 };
 
@@ -1278,6 +1334,17 @@ static struct regsvr_decoder const decoder_list[] = {
 	bmp_formats,
 	bmp_patterns
     },
+    {   &CLSID_WICDdsDecoder,
+    "The Wine Project",
+    "DDS Decoder",
+    "1.0.0.0",
+    &GUID_VendorMicrosoft,
+    &GUID_ContainerFormatDds,
+    "image/vnd.ms-dds",
+    ".dds",
+    dds_formats,
+    dds_patterns
+    },
     {   &CLSID_WICGifDecoder,
 	"The Wine Project",
 	"GIF Decoder",
@@ -1310,6 +1377,17 @@ static struct regsvr_decoder const decoder_list[] = {
 	".jpg;.jpeg;.jfif",
 	jpeg_formats,
 	jpeg_patterns
+    },
+    {   &CLSID_WICWmpDecoder,
+	"The Wine Project",
+	"JPEG-XR Decoder",
+	"1.0.0.0",
+	&GUID_VendorMicrosoft,
+	&GUID_ContainerFormatWmp,
+	"image/jxr",
+	".jxr;.hdp;.wdp",
+	wmp_formats,
+	wmp_patterns
     },
     {   &CLSID_WICPngDecoder,
 	"The Wine Project",
@@ -1756,6 +1834,10 @@ static BYTE const channel_mask_16bit4[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 
 static BYTE const channel_mask_32bit[] = { 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00 };
 
+static BYTE const channel_mask_96bit1[] = { 0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+static BYTE const channel_mask_96bit2[] = { 0x00,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00 };
+static BYTE const channel_mask_96bit3[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0xff,0xff };
+
 static BYTE const channel_mask_128bit1[] = { 0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
 static BYTE const channel_mask_128bit2[] = { 0x00,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
 static BYTE const channel_mask_128bit3[] = { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00 };
@@ -1778,6 +1860,7 @@ static BYTE const * const channel_masks_16bit[] = { channel_mask_16bit,
     channel_mask_16bit2, channel_mask_16bit3, channel_mask_16bit4};
 
 static BYTE const * const channel_masks_32bit[] = { channel_mask_32bit };
+static BYTE const * const channel_masks_96bit[] = { channel_mask_96bit1, channel_mask_96bit2, channel_mask_96bit3 };
 static BYTE const * const channel_masks_128bit[] = { channel_mask_128bit1, channel_mask_128bit2, channel_mask_128bit3, channel_mask_128bit4 };
 
 static BYTE const * const channel_masks_BGRA5551[] = { channel_mask_5bit,
@@ -2073,9 +2156,31 @@ static struct regsvr_pixelformat const pixelformat_list[] = {
         WICPixelFormatNumericRepresentationUnsignedInteger,
         0
     },
+    {   &GUID_WICPixelFormat96bppRGBFloat,
+        "The Wine Project",
+        "96bpp RGBFloat",
+        NULL, /* no version */
+        &GUID_VendorMicrosoft,
+        96, /* bitsperpixel */
+        3, /* channel count */
+        channel_masks_96bit,
+        WICPixelFormatNumericRepresentationFloat,
+        0
+    },
     {   &GUID_WICPixelFormat128bppRGBAFloat,
         "The Wine Project",
         "128bpp RGBAFloat",
+        NULL, /* no version */
+        &GUID_VendorMicrosoft,
+        128, /* bitsperpixel */
+        4, /* channel count */
+        channel_masks_128bit,
+        WICPixelFormatNumericRepresentationFloat,
+        1
+    },
+    {   &GUID_WICPixelFormat128bppPRGBAFloat,
+        "The Wine Project",
+        "128bpp PRGBAFloat",
         NULL, /* no version */
         &GUID_VendorMicrosoft,
         128, /* bitsperpixel */

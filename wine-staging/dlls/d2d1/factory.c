@@ -138,7 +138,7 @@ static HRESULT STDMETHODCALLTYPE d2d_factory_CreateRectangleGeometry(ID2D1Factor
     if (!(object = heap_alloc_zero(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d2d_rectangle_geometry_init(object, iface, rect)))
+    if (FAILED(hr = d2d_rectangle_geometry_init(object, (ID2D1Factory *)iface, rect)))
     {
         WARN("Failed to initialize rectangle geometry, hr %#x.\n", hr);
         heap_free(object);
@@ -152,19 +152,51 @@ static HRESULT STDMETHODCALLTYPE d2d_factory_CreateRectangleGeometry(ID2D1Factor
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_factory_CreateRoundedRectangleGeometry(ID2D1Factory2 *iface,
-        const D2D1_ROUNDED_RECT *rect, ID2D1RoundedRectangleGeometry **geometry)
+        const D2D1_ROUNDED_RECT *rounded_rect, ID2D1RoundedRectangleGeometry **geometry)
 {
-    FIXME("iface %p, rect %p, geometry %p stub!\n", iface, rect, geometry);
+    struct d2d_geometry *object;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, rounded_rect %s, geometry %p.\n", iface, debug_d2d_rounded_rect(rounded_rect), geometry);
+
+    if (!(object = heap_alloc_zero(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    if (FAILED(hr = d2d_rounded_rectangle_geometry_init(object, (ID2D1Factory *)iface, rounded_rect)))
+    {
+        WARN("Failed to initialize rounded rectangle geometry, hr %#x.\n", hr);
+        heap_free(object);
+        return hr;
+    }
+
+    TRACE("Created rounded rectangle geometry %p.\n", object);
+    *geometry = (ID2D1RoundedRectangleGeometry *)&object->ID2D1Geometry_iface;
+
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_factory_CreateEllipseGeometry(ID2D1Factory2 *iface,
         const D2D1_ELLIPSE *ellipse, ID2D1EllipseGeometry **geometry)
 {
-    FIXME("iface %p, ellipse %p, geometry %p stub!\n", iface, ellipse, geometry);
+    struct d2d_geometry *object;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, ellipse %s, geometry %p.\n", iface, debug_d2d_ellipse(ellipse), geometry);
+
+    if (!(object = heap_alloc_zero(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    if (FAILED(hr = d2d_ellipse_geometry_init(object, (ID2D1Factory *)iface, ellipse)))
+    {
+        WARN("Failed to initialize ellipse geometry, hr %#x.\n", hr);
+        heap_free(object);
+        return hr;
+    }
+
+    TRACE("Created ellipse geometry %p.\n", object);
+    *geometry = (ID2D1EllipseGeometry *)&object->ID2D1Geometry_iface;
+
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_factory_CreateGeometryGroup(ID2D1Factory2 *iface,
@@ -179,7 +211,7 @@ static HRESULT STDMETHODCALLTYPE d2d_factory_CreateGeometryGroup(ID2D1Factory2 *
     if (!(object = heap_alloc_zero(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d2d_geometry_group_init(object, iface, fill_mode, geometries, geometry_count)))
+    if (FAILED(hr = d2d_geometry_group_init(object, (ID2D1Factory *)iface, fill_mode, geometries, geometry_count)))
     {
         WARN("Failed to initialize geometry group, hr %#x.\n", hr);
         heap_free(object);
@@ -204,7 +236,7 @@ static HRESULT STDMETHODCALLTYPE d2d_factory_CreateTransformedGeometry(ID2D1Fact
     if (!(object = heap_alloc_zero(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    d2d_transformed_geometry_init(object, iface, src_geometry, transform);
+    d2d_transformed_geometry_init(object, (ID2D1Factory *)iface, src_geometry, transform);
 
     TRACE("Created transformed geometry %p.\n", object);
     *transformed_geometry = (ID2D1TransformedGeometry *)&object->ID2D1Geometry_iface;
@@ -221,7 +253,7 @@ static HRESULT STDMETHODCALLTYPE d2d_factory_CreatePathGeometry(ID2D1Factory2 *i
     if (!(object = heap_alloc_zero(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    d2d_path_geometry_init(object, iface);
+    d2d_path_geometry_init(object, (ID2D1Factory *)iface);
 
     TRACE("Created path geometry %p.\n", object);
     *geometry = (ID2D1PathGeometry *)&object->ID2D1Geometry_iface;
@@ -647,6 +679,38 @@ BOOL WINAPI D2D1InvertMatrix(D2D1_MATRIX_3X2_F *matrix)
     TRACE("matrix %p.\n", matrix);
 
     return d2d_matrix_invert(matrix, &m);
+}
+
+HRESULT WINAPI D2D1CreateDevice(IDXGIDevice *dxgi_device,
+        const D2D1_CREATION_PROPERTIES *properties, ID2D1Device **device)
+{
+    D2D1_CREATION_PROPERTIES default_properties = {0};
+    D2D1_FACTORY_OPTIONS factory_options;
+    ID3D11Device *d3d_device;
+    ID2D1Factory1 *factory;
+    HRESULT hr;
+
+    TRACE("dxgi_device %p, properties %p, device %p.\n", dxgi_device, properties, device);
+
+    if (!properties)
+    {
+        if (SUCCEEDED(IDXGIDevice_QueryInterface(dxgi_device, &IID_ID3D11Device, (void **)&d3d_device)))
+        {
+            if (!(ID3D11Device_GetCreationFlags(d3d_device) & D3D11_CREATE_DEVICE_SINGLETHREADED))
+                default_properties.threadingMode = D2D1_THREADING_MODE_MULTI_THREADED;
+            ID3D11Device_Release(d3d_device);
+        }
+        properties = &default_properties;
+    }
+
+    factory_options.debugLevel = properties->debugLevel;
+    if (FAILED(hr = D2D1CreateFactory(properties->threadingMode,
+            &IID_ID2D1Factory1, &factory_options, (void **)&factory)))
+        return hr;
+
+    hr = ID2D1Factory1_CreateDevice(factory, dxgi_device, device);
+    ID2D1Factory1_Release(factory);
+    return hr;
 }
 
 static BOOL get_config_key_dword(HKEY default_key, HKEY application_key, const char *name, DWORD *value)

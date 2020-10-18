@@ -130,16 +130,9 @@ HRESULT resource_init(struct wined3d_resource *resource, struct wined3d_device *
                 continue;
             }
             if ((bind_flags & WINED3D_BIND_DEPTH_STENCIL)
-                    && !(format->flags[gl_type] & (WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL)))
+                    && !(format->flags[gl_type] & WINED3DFMT_FLAG_DEPTH_STENCIL))
             {
                 WARN("Format %s cannot be used for depth/stencil buffers.\n", debug_d3dformat(format->id));
-                continue;
-            }
-            if (wined3d_settings.offscreen_rendering_mode == ORM_FBO
-                    && bind_flags & (WINED3D_BIND_RENDER_TARGET | WINED3D_BIND_DEPTH_STENCIL)
-                    && !(format->flags[gl_type] & WINED3DFMT_FLAG_FBO_ATTACHABLE))
-            {
-                WARN("Render target or depth stencil is not FBO attachable.\n");
                 continue;
             }
             if ((bind_flags & WINED3D_BIND_SHADER_RESOURCE)
@@ -240,6 +233,7 @@ static void wined3d_resource_destroy_object(void *object)
 {
     struct wined3d_resource *resource = object;
 
+    heap_free(resource->sub_resource_bind_counts_device);
     wined3d_resource_free_sysmem(resource);
     context_resource_released(resource->device, resource);
     wined3d_resource_release(resource);
@@ -649,4 +643,30 @@ unsigned int wined3d_resource_get_sample_count(const struct wined3d_resource *re
     }
 
     return resource->multisample_type;
+}
+
+VkAccessFlags vk_access_mask_from_bind_flags(uint32_t bind_flags)
+{
+    VkAccessFlags flags = 0;
+
+    if (bind_flags & WINED3D_BIND_VERTEX_BUFFER)
+        flags |= VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+    if (bind_flags & WINED3D_BIND_INDEX_BUFFER)
+        flags |= VK_ACCESS_INDEX_READ_BIT;
+    if (bind_flags & WINED3D_BIND_CONSTANT_BUFFER)
+        flags |= VK_ACCESS_UNIFORM_READ_BIT;
+    if (bind_flags & WINED3D_BIND_SHADER_RESOURCE)
+        flags |= VK_ACCESS_SHADER_READ_BIT;
+    if (bind_flags & WINED3D_BIND_UNORDERED_ACCESS)
+        flags |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    if (bind_flags & WINED3D_BIND_INDIRECT_BUFFER)
+        flags |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+    if (bind_flags & WINED3D_BIND_RENDER_TARGET)
+        flags |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    if (bind_flags & WINED3D_BIND_DEPTH_STENCIL)
+        flags |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    if (bind_flags & WINED3D_BIND_STREAM_OUTPUT)
+        FIXME("Ignoring some bind flags %#x.\n", bind_flags);
+
+    return flags;
 }

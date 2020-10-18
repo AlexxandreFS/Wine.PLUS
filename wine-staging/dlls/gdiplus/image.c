@@ -53,21 +53,21 @@ static const struct
     WICBitmapPaletteType palette_type;
 } pixel_formats[] =
 {
-    { &GUID_WICPixelFormatBlackWhite, PixelFormat1bppIndexed, WICBitmapPaletteTypeFixedBW },
     { &GUID_WICPixelFormat1bppIndexed, PixelFormat1bppIndexed, WICBitmapPaletteTypeFixedBW },
+    { &GUID_WICPixelFormatBlackWhite, PixelFormat1bppIndexed, WICBitmapPaletteTypeFixedBW },
     { &GUID_WICPixelFormat4bppIndexed, PixelFormat4bppIndexed, WICBitmapPaletteTypeFixedHalftone8 },
-    { &GUID_WICPixelFormat8bppGray, PixelFormat8bppIndexed, WICBitmapPaletteTypeFixedGray256 },
     { &GUID_WICPixelFormat8bppIndexed, PixelFormat8bppIndexed, WICBitmapPaletteTypeFixedHalftone256 },
-    { &GUID_WICPixelFormat16bppBGR555, PixelFormat16bppRGB555, WICBitmapPaletteTypeFixedHalftone256 },
-    { &GUID_WICPixelFormat24bppBGR, PixelFormat24bppRGB, WICBitmapPaletteTypeFixedHalftone256 },
-    { &GUID_WICPixelFormat32bppBGR, PixelFormat32bppRGB, WICBitmapPaletteTypeFixedHalftone256 },
-    { &GUID_WICPixelFormat48bppRGB, PixelFormat48bppRGB, WICBitmapPaletteTypeFixedHalftone256 },
-    { &GUID_WICPixelFormat32bppBGRA, PixelFormat32bppARGB, WICBitmapPaletteTypeFixedHalftone256 },
-    { &GUID_WICPixelFormat32bppPBGRA, PixelFormat32bppPARGB, WICBitmapPaletteTypeFixedHalftone256 },
-    { &GUID_WICPixelFormat32bppCMYK, PixelFormat32bppCMYK, WICBitmapPaletteTypeFixedHalftone256 },
-    { &GUID_WICPixelFormat32bppGrayFloat, PixelFormat32bppARGB, WICBitmapPaletteTypeFixedGray256 },
-    { &GUID_WICPixelFormat64bppCMYK, PixelFormat48bppRGB, WICBitmapPaletteTypeFixedHalftone256 },
-    { &GUID_WICPixelFormat64bppRGBA, PixelFormat48bppRGB, WICBitmapPaletteTypeFixedHalftone256 },
+    { &GUID_WICPixelFormat8bppGray, PixelFormat8bppIndexed, WICBitmapPaletteTypeFixedGray256 },
+    { &GUID_WICPixelFormat16bppBGR555, PixelFormat16bppRGB555, 0 },
+    { &GUID_WICPixelFormat24bppBGR, PixelFormat24bppRGB, 0 },
+    { &GUID_WICPixelFormat32bppBGR, PixelFormat32bppRGB, 0 },
+    { &GUID_WICPixelFormat32bppBGRA, PixelFormat32bppARGB, 0 },
+    { &GUID_WICPixelFormat32bppCMYK, PixelFormat32bppCMYK, 0 },
+    { &GUID_WICPixelFormat32bppGrayFloat, PixelFormat32bppARGB, 0 },
+    { &GUID_WICPixelFormat32bppPBGRA, PixelFormat32bppPARGB, 0 },
+    { &GUID_WICPixelFormat48bppRGB, PixelFormat48bppRGB, 0 },
+    { &GUID_WICPixelFormat64bppCMYK, PixelFormat48bppRGB, 0 },
+    { &GUID_WICPixelFormat64bppRGBA, PixelFormat48bppRGB, 0 },
     { NULL }
 };
 
@@ -87,7 +87,7 @@ static ColorPalette *get_palette(IWICBitmapFrameDecode *frame, WICBitmapPaletteT
         hr = WINCODEC_ERR_PALETTEUNAVAILABLE;
         if (frame)
             hr = IWICBitmapFrameDecode_CopyPalette(frame, wic_palette);
-        if (hr != S_OK)
+        if (hr != S_OK && palette_type != 0)
         {
             TRACE("using predefined palette %#x\n", palette_type);
             hr = IWICPalette_InitializePredefined(wic_palette, palette_type, FALSE);
@@ -129,6 +129,31 @@ static ColorPalette *get_palette(IWICBitmapFrameDecode *frame, WICBitmapPaletteT
     }
     IWICImagingFactory_Release(factory);
     return palette;
+}
+
+static HRESULT set_palette(IWICBitmapFrameEncode *frame, ColorPalette *palette)
+{
+    HRESULT hr;
+    IWICImagingFactory *factory;
+    IWICPalette *wic_palette;
+
+    hr = WICCreateImagingFactory_Proxy(WINCODEC_SDK_VERSION, &factory);
+    if (FAILED(hr))
+        return hr;
+
+    hr = IWICImagingFactory_CreatePalette(factory, &wic_palette);
+    IWICImagingFactory_Release(factory);
+    if (SUCCEEDED(hr))
+    {
+        hr = IWICPalette_InitializeCustom(wic_palette, palette->Entries, palette->Count);
+
+        if (SUCCEEDED(hr))
+            hr = IWICBitmapFrameEncode_SetPalette(frame, wic_palette);
+
+        IWICPalette_Release(wic_palette);
+    }
+
+    return hr;
 }
 
 GpStatus WINGDIPAPI GdipBitmapApplyEffect(GpBitmap* bitmap, CGpEffect* effect,
@@ -244,12 +269,17 @@ static inline void getpixel_32bppPARGB(BYTE *r, BYTE *g, BYTE *b, BYTE *a,
 {
     *a = row[x*4+3];
     if (*a == 0)
-        *r = *g = *b = 0;
+    {
+        *r = row[x*4+2];
+        *g = row[x*4+1];
+        *b = row[x*4];
+    }
     else
     {
-        *r = row[x*4+2] * 255 / *a;
-        *g = row[x*4+1] * 255 / *a;
-        *b = row[x*4] * 255 / *a;
+        DWORD scaled_q = (255 << 15) / *a;
+        *r = (row[x*4+2] > *a) ? 0xff : (row[x*4+2] * scaled_q) >> 15;
+        *g = (row[x*4+1] > *a) ? 0xff : (row[x*4+1] * scaled_q) >> 15;
+        *b = (row[x*4] > *a) ? 0xff : (row[x*4] * scaled_q) >> 15;
     }
 }
 
@@ -355,6 +385,11 @@ GpStatus WINGDIPAPI GdipBitmapGetPixel(GpBitmap* bitmap, INT x, INT y,
     return Ok;
 }
 
+static unsigned int absdiff(unsigned int x, unsigned int y)
+{
+    return x > y ? x - y : y - x;
+}
+
 static inline UINT get_palette_index(BYTE r, BYTE g, BYTE b, BYTE a, ColorPalette *palette)
 {
     BYTE index = 0;
@@ -374,7 +409,7 @@ static inline UINT get_palette_index(BYTE r, BYTE g, BYTE b, BYTE a, ColorPalett
     */
     for(i=0;i<palette->Count;i++) {
         ARGB color=palette->Entries[i];
-        distance=abs(b-(color & 0xff)) + abs(g-(color>>8 & 0xff)) + abs(r-(color>>16 & 0xff)) + abs(a-(color>>24 & 0xff));
+        distance=absdiff(b, color & 0xff) + absdiff(g, color>>8 & 0xff) + absdiff(r, color>>16 & 0xff) + absdiff(a, color>>24 & 0xff);
         if (distance<best_distance) {
             best_distance=distance;
             index=i;
@@ -459,9 +494,9 @@ static inline void setpixel_32bppARGB(BYTE r, BYTE g, BYTE b, BYTE a,
 static inline void setpixel_32bppPARGB(BYTE r, BYTE g, BYTE b, BYTE a,
     BYTE *row, UINT x)
 {
-    r = r * a / 255;
-    g = g * a / 255;
-    b = b * a / 255;
+    r = (r * a + 127) / 255;
+    g = (g * a + 127) / 255;
+    b = (b * a + 127) / 255;
     *((DWORD*)(row)+x) = (a<<24)|(r<<16)|(g<<8)|b;
 }
 
@@ -1827,6 +1862,7 @@ GpStatus WINGDIPAPI GdipCreateBitmapFromScan0(INT width, INT height, INT stride,
     (*bitmap)->height = height;
     (*bitmap)->format = format;
     (*bitmap)->image.decoder = NULL;
+    (*bitmap)->image.encoder = NULL;
     (*bitmap)->hbitmap = hbitmap;
     (*bitmap)->hdc = NULL;
     (*bitmap)->bits = bits;
@@ -2046,6 +2082,8 @@ static void move_bitmap(GpBitmap *dst, GpBitmap *src, BOOL clobber_palette)
     if (dst->image.decoder)
         IWICBitmapDecoder_Release(dst->image.decoder);
     dst->image.decoder = src->image.decoder;
+    terminate_encoder_wic(&dst->image); /* terminate active encoder before overwriting with src */
+    dst->image.encoder = src->image.encoder;
     dst->image.frame_count = src->image.frame_count;
     dst->image.current_frame = src->image.current_frame;
     dst->image.format = src->image.format;
@@ -2078,6 +2116,7 @@ static GpStatus free_image_data(GpImage *image)
     }
     if (image->decoder)
         IWICBitmapDecoder_Release(image->decoder);
+    terminate_encoder_wic(image);
     heap_free(image->palette);
 
     return Ok;
@@ -2255,6 +2294,12 @@ GpStatus WINGDIPAPI GdipGetImagePaletteSize(GpImage *image, INT *size)
 
     if(!image || !size)
         return InvalidParameter;
+
+    if (image->type == ImageTypeMetafile)
+    {
+        *size = 0;
+        return GenericError;
+    }
 
     if (!image->palette || image->palette->Count == 0)
         *size = sizeof(ColorPalette);
@@ -3744,6 +3789,8 @@ static GpStatus select_frame_wic(GpImage *image, UINT active_frame)
 
     new_image->busy = image->busy;
     memcpy(&new_image->format, &image->format, sizeof(GUID));
+    new_image->encoder = image->encoder;
+    image->encoder = NULL;
     free_image_data(image);
     if (image->type == ImageTypeBitmap)
         *(GpBitmap *)image = *(GpBitmap *)new_image;
@@ -4420,6 +4467,9 @@ GpStatus WINGDIPAPI GdipSaveImageToFile(GpImage *image, GDIPCONST WCHAR* filenam
     if (!image || !filename|| !clsidEncoder)
         return InvalidParameter;
 
+    /* this might release an old file stream held by the encoder so we can re-create it below */
+    terminate_encoder_wic(image);
+
     stat = GdipCreateStreamOnFile(filename, GENERIC_WRITE, &stream);
     if (stat != Ok)
         return GenericError;
@@ -4435,13 +4485,52 @@ GpStatus WINGDIPAPI GdipSaveImageToFile(GpImage *image, GDIPCONST WCHAR* filenam
  *   These functions encode an image in different image file formats.
  */
 
-static GpStatus encode_image_wic(GpImage *image, IStream* stream,
-    REFGUID container, GDIPCONST EncoderParameters* params)
+static GpStatus initialize_encoder_wic(IStream *stream, REFGUID container, GpImage *image)
+{
+    IWICImagingFactory *factory;
+    HRESULT hr;
+
+    TRACE("%p,%s\n", stream, wine_dbgstr_guid(container));
+
+    terminate_encoder_wic(image); /* terminate previous encoder if it exists */
+
+    hr = WICCreateImagingFactory_Proxy(WINCODEC_SDK_VERSION, &factory);
+    if (FAILED(hr)) return hresult_to_status(hr);
+    hr = IWICImagingFactory_CreateEncoder(factory, container, NULL, &image->encoder);
+    IWICImagingFactory_Release(factory);
+    if (FAILED(hr))
+    {
+        image->encoder = NULL;
+        return hresult_to_status(hr);
+    }
+
+    hr = IWICBitmapEncoder_Initialize(image->encoder, stream, WICBitmapEncoderNoCache);
+    if (FAILED(hr))
+    {
+        IWICBitmapEncoder_Release(image->encoder);
+        image->encoder = NULL;
+        return hresult_to_status(hr);
+    }
+    return Ok;
+}
+
+GpStatus terminate_encoder_wic(GpImage *image)
+{
+    if (!image->encoder)
+        return Ok;
+    else
+    {
+        HRESULT hr = IWICBitmapEncoder_Commit(image->encoder);
+        IWICBitmapEncoder_Release(image->encoder);
+        image->encoder = NULL;
+        return hresult_to_status(hr);
+    }
+}
+
+static GpStatus encode_frame_wic(IWICBitmapEncoder *encoder, GpImage *image)
 {
     GpStatus stat;
     GpBitmap *bitmap;
-    IWICImagingFactory *factory;
-    IWICBitmapEncoder *encoder;
     IWICBitmapFrameEncode *frameencode;
     IPropertyBag2 *encoderoptions;
     HRESULT hr;
@@ -4466,20 +4555,7 @@ static GpStatus encode_image_wic(GpImage *image, IStream* stream,
     rc.Width = width;
     rc.Height = height;
 
-    hr = WICCreateImagingFactory_Proxy(WINCODEC_SDK_VERSION, &factory);
-    if (FAILED(hr))
-        return hresult_to_status(hr);
-    hr = IWICImagingFactory_CreateEncoder(factory, container, NULL, &encoder);
-    IWICImagingFactory_Release(factory);
-    if (FAILED(hr))
-        return hresult_to_status(hr);
-
-    hr = IWICBitmapEncoder_Initialize(encoder, stream, WICBitmapEncoderNoCache);
-
-    if (SUCCEEDED(hr))
-    {
-        hr = IWICBitmapEncoder_CreateNewFrame(encoder, &frameencode, &encoderoptions);
-    }
+    hr = IWICBitmapEncoder_CreateNewFrame(encoder, &frameencode, &encoderoptions);
 
     if (SUCCEEDED(hr)) /* created frame */
     {
@@ -4531,6 +4607,9 @@ static GpStatus encode_image_wic(GpImage *image, IStream* stream,
             }
         }
 
+        if (SUCCEEDED(hr) && IsIndexedPixelFormat(gdipformat) && image->palette)
+            hr = set_palette(frameencode, image->palette);
+
         if (SUCCEEDED(hr))
         {
             stat = GdipBitmapLockBits(bitmap, &rc, ImageLockModeRead, gdipformat,
@@ -4563,11 +4642,54 @@ static GpStatus encode_image_wic(GpImage *image, IStream* stream,
         IPropertyBag2_Release(encoderoptions);
     }
 
-    if (SUCCEEDED(hr))
-        hr = IWICBitmapEncoder_Commit(encoder);
-
-    IWICBitmapEncoder_Release(encoder);
     return hresult_to_status(hr);
+}
+
+static BOOL has_encoder_param_long(GDIPCONST EncoderParameters *params, GUID param_guid, ULONG val)
+{
+    int param_idx, value_idx;
+
+    if (!params)
+        return FALSE;
+
+    for (param_idx = 0; param_idx < params->Count; param_idx++)
+    {
+        EncoderParameter param = params->Parameter[param_idx];
+        if (param.Type == EncoderParameterValueTypeLong && IsEqualCLSID(&param.Guid, &param_guid))
+        {
+            ULONG *value_array = (ULONG*) param.Value;
+            for (value_idx = 0; value_idx < param.NumberOfValues; value_idx++)
+            {
+                if (value_array[value_idx] == val)
+                    return TRUE;
+            }
+        }
+    }
+    return FALSE;
+}
+
+static GpStatus encode_image_wic(GpImage *image, IStream *stream,
+    REFGUID container, GDIPCONST EncoderParameters *params)
+{
+    GpStatus status, terminate_status;
+
+    if (image->type != ImageTypeBitmap)
+        return GenericError;
+
+    status = initialize_encoder_wic(stream, container, image);
+
+    if (status == Ok)
+        status = encode_frame_wic(image->encoder, image);
+
+    if (!has_encoder_param_long(params, EncoderSaveFlag, EncoderValueMultiFrame))
+    {
+        /* always try to terminate, but if something already failed earlier, keep the old status. */
+        terminate_status = terminate_encoder_wic(image);
+        if (status == Ok)
+            status = terminate_status;
+    }
+
+    return status;
 }
 
 static GpStatus encode_image_BMP(GpImage *image, IStream* stream,
@@ -4632,11 +4754,42 @@ GpStatus WINGDIPAPI GdipSaveImageToStream(GpImage *image, IStream* stream,
 
 /*****************************************************************************
  * GdipSaveAdd [GDIPLUS.@]
+ *
+ * Like GdipSaveAddImage(), but encode the currently active frame of the given image into the file
+ * or stream that is currently being encoded.
  */
 GpStatus WINGDIPAPI GdipSaveAdd(GpImage *image, GDIPCONST EncoderParameters *params)
 {
-    FIXME("(%p,%p): stub\n", image, params);
-    return Ok;
+    return GdipSaveAddImage(image, image, params);
+}
+
+/*****************************************************************************
+ * GdipSaveAddImage [GDIPLUS.@]
+ *
+ * Encode the currently active frame of additional_image into the file or stream that is currently
+ * being encoded by the image given in the image parameter. The first frame of a multi-frame image
+ * must be encoded using the normal GdipSaveImageToStream() or GdipSaveImageToFile() functions,
+ * but with the "MultiFrame" encoding parameter set. The multi-frame encoding process must be
+ * finished after adding the last frame by calling GdipSaveAdd() with the "Flush" encoding parameter
+ * set.
+ */
+GpStatus WINGDIPAPI GdipSaveAddImage(GpImage *image, GpImage *additional_image,
+    GDIPCONST EncoderParameters *params)
+{
+    TRACE("%p, %p, %p\n", image, additional_image, params);
+
+    if (!image || !additional_image || !params)
+        return InvalidParameter;
+
+    if (!image->encoder)
+        return Win32Error;
+
+    if (has_encoder_param_long(params, EncoderSaveFlag, EncoderValueFlush))
+        return terminate_encoder_wic(image);
+    else if (has_encoder_param_long(params, EncoderSaveFlag, EncoderValueFrameDimensionPage))
+        return encode_frame_wic(image->encoder, additional_image);
+    else
+        return InvalidParameter;
 }
 
 /*****************************************************************************

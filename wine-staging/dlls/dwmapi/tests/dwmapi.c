@@ -1,7 +1,5 @@
 /*
- * Unit tests for dwmapi
- *
- * Copyright 2018 Louis Lenders
+ * Copyright 2020 Zhiyi Zhang for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,93 +14,37 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
- *
  */
 
 #include "dwmapi.h"
-
 #include "wine/test.h"
 
-static HRESULT (WINAPI *pDwmIsCompositionEnabled)(BOOL*);
-static HRESULT (WINAPI *pDwmEnableComposition)(UINT);
-static HRESULT (WINAPI *pDwmGetTransportAttributes)(BOOL*,BOOL*,DWORD*);
-
-BOOL dwmenabled;
-
-static void test_isdwmenabled(void)
+static void test_DwmIsCompositionEnabled(void)
 {
-    HRESULT res;
-    BOOL ret;
+    BOOL enabled;
+    HRESULT hr;
 
-    ret = -1;
-    res = pDwmIsCompositionEnabled(&ret);
-    ok((res == S_OK && ret == TRUE) || (res == S_OK && ret == FALSE), "got %x and %d\n", res, ret);
+    hr = DwmIsCompositionEnabled(NULL);
+    ok(hr == E_INVALIDARG, "Expected %#x, got %#x.\n", E_INVALIDARG, hr);
 
-    if (res == S_OK && ret == TRUE)
-        dwmenabled = TRUE;
-    else
-        dwmenabled = FALSE;
-    /*tested on win7 by enabling/disabling DWM service via services.msc*/
-    if (dwmenabled)
-    {
-        res = pDwmEnableComposition(DWM_EC_DISABLECOMPOSITION); /* try disable and reenable dwm*/
-        ok(res == S_OK, "got %x expected S_OK\n", res);
-
-        ret = -1;
-        res = pDwmIsCompositionEnabled(&ret);
-        ok((res == S_OK && ret == FALSE) /*wvista win7*/ || (res == S_OK && ret == TRUE) /*>win7*/, "got %x and %d\n", res, ret);
-
-        res = pDwmEnableComposition(DWM_EC_ENABLECOMPOSITION);
-        ok(res == S_OK, "got %x\n", res);
-
-        ret = -1;
-        res = pDwmIsCompositionEnabled(&ret);
-        todo_wine ok(res == S_OK && ret == TRUE, "got %x and %d\n", res, ret);
-    }
-    else
-    {
-        res = pDwmEnableComposition(DWM_EC_ENABLECOMPOSITION); /*cannot enable DWM composition this way*/
-        ok(res == S_OK /*win7 testbot*/ || res == DWM_E_COMPOSITIONDISABLED /*win7 laptop*/, "got %x\n", res);
-        if (winetest_debug > 1)
-            trace("returning %x\n", res);
-
-        ret = -1;
-        res = pDwmIsCompositionEnabled(&ret);
-        ok(res == S_OK && ret == FALSE, "got %x  and %d\n", res, ret);
-    }
+    enabled = -1;
+    hr = DwmIsCompositionEnabled(&enabled);
+    ok(hr == S_OK, "Expected %#x, got %#x.\n", S_OK, hr);
+    ok(enabled == TRUE || enabled == FALSE, "Got unexpected %#x.\n", enabled);
 }
 
 static void test_dwm_get_transport_attributes(void)
 {
     BOOL isremoting, isconnected;
     DWORD generation;
-    HRESULT res;
+    HRESULT hr;
 
-    res = pDwmGetTransportAttributes(&isremoting, &isconnected, &generation);
-    if (dwmenabled)
-        ok(res == S_OK, "got %x\n", res);
-    else
-    {
-        ok(res == S_OK /*win7 testbot*/ || res == DWM_E_COMPOSITIONDISABLED /*win7 laptop*/, "got %x\n", res);
-        if (winetest_debug > 1)
-            trace("returning %x\n", res);
-    }
+    hr = DwmGetTransportAttributes(&isremoting, &isconnected, &generation);
+    ok(hr == S_OK || hr == DWM_E_COMPOSITIONDISABLED, "Got unexpected %#x.\n", hr);
 }
 
 START_TEST(dwmapi)
 {
-    HMODULE hmod = LoadLibraryA("dwmapi.dll");
-
-    if (!hmod)
-    {
-        trace("dwmapi not found, skipping tests\n");
-        return;
-    }
-
-    pDwmIsCompositionEnabled = (void *)GetProcAddress(hmod, "DwmIsCompositionEnabled");
-    pDwmEnableComposition = (void *)GetProcAddress(hmod, "DwmEnableComposition");
-    pDwmGetTransportAttributes = (void *)GetProcAddress(hmod, "DwmGetTransportAttributes");
-
-    test_isdwmenabled();
+    test_DwmIsCompositionEnabled();
     test_dwm_get_transport_attributes();
 }

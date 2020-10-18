@@ -33,14 +33,22 @@
 # define __ASM_STDCALL(name,args) __ASM_NAME(name)
 #endif
 
-#if defined(__GCC_HAVE_DWARF2_CFI_ASM) || defined(__APPLE__)
+#if defined(__GCC_HAVE_DWARF2_CFI_ASM) || (defined(__clang__) && defined(__GNUC__) && !defined(__SEH__))
 # define __ASM_CFI(str) str
 #else
 # define __ASM_CFI(str)
 #endif
 
 #ifdef __SEH__
-# define __ASM_SEH(str) str
+# if defined(__aarch64__) && defined(__clang_major__) && (__clang_major__ < 12 || defined(__apple_build_version__))
+   /* Clang got support for aarch64 SEH assembly directives in Clang 12,
+    * before that, only .seh_startproc/.seh_endproc but nothing else was
+    * supported. Support for it doesn't exist in any Apple branded version
+    * of Clang yet. */
+#  define __ASM_SEH(str)
+# else
+#  define __ASM_SEH(str) str
+# endif
 #else
 # define __ASM_SEH(str)
 #endif
@@ -55,15 +63,19 @@
 # define __ASM_FUNC_TYPE(name) ".type " name ",@function"
 #endif
 
-#ifdef __GNUC__
-# define __ASM_DEFINE_FUNC(name,code) \
-    asm(".text\n\t.align 4\n\t.globl " name "\n\t" __ASM_FUNC_TYPE(name) __ASM_SEH("\n\t.seh_proc " name) "\n" name ":\n\t" \
-        __ASM_CFI(".cfi_startproc\n\t") code __ASM_CFI("\n\t.cfi_endproc") __ASM_SEH("\n\t.seh_endproc") );
+#if !defined(__GNUC__) && !defined(__clang__)
+# define __ASM_BLOCK_BEGIN(name) void __asm_dummy_##name(void) {
+# define __ASM_BLOCK_END         }
 #else
-# define __ASM_DEFINE_FUNC(name,code) void __asm_dummy_##__LINE__(void) { \
-    asm(".text\n\t.align 4\n\t.globl " name "\n\t" __ASM_FUNC_TYPE(name) __ASM_SEH("\n\t.seh_proc " name) "\n" name ":\n\t" \
-        __ASM_CFI(".cfi_startproc\n\t") code __ASM_CFI("\n\t.cfi_endproc") __ASM_SEH("\n\t.seh_endproc") ); }
+# define __ASM_BLOCK_BEGIN(name)
+# define __ASM_BLOCK_END
 #endif
+
+#define __ASM_DEFINE_FUNC(name,code)  \
+    __ASM_BLOCK_BEGIN(__LINE__) \
+    asm(".text\n\t.align 4\n\t.globl " name "\n\t" __ASM_FUNC_TYPE(name) __ASM_SEH("\n\t.seh_proc " name) "\n" name ":\n\t" \
+        __ASM_CFI(".cfi_startproc\n\t") code __ASM_CFI("\n\t.cfi_endproc") __ASM_SEH("\n\t.seh_endproc") ); \
+    __ASM_BLOCK_END
 
 #define __ASM_GLOBAL_FUNC(name,code) __ASM_DEFINE_FUNC(__ASM_NAME(#name),code)
 
@@ -96,8 +108,9 @@
 
 /* thiscall support */
 
-#if defined(__i386__) && !defined(__MINGW32__)
+#if defined(__i386__) && !defined(__MINGW32__) && (!defined(_MSC_VER) || !defined(__clang__))
 
+#define __ASM_USE_THISCALL_WRAPPER
 # ifdef _MSC_VER
 #  define DEFINE_THISCALL_WRAPPER(func,args) \
     __declspec(naked) void __thiscall_##func(void) \
@@ -127,5 +140,11 @@
 # define THISCALL_NAME(func) __ASM_NAME(#func)
 
 #endif  /* __i386__ */
+
+#if defined(__GNUC__) && !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
+#define __ASM_OBSOLETE(func) __asm__( ".symver " #func "_obsolete," #func "@WINE_1.0" )
+#else
+#undef __ASM_OBSOLETE
+#endif
 
 #endif  /* __WINE_WINE_ASM_H */

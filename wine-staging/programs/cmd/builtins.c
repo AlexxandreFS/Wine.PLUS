@@ -31,6 +31,9 @@
 #include "wcmd.h"
 #include <shellapi.h>
 #include "wine/debug.h"
+#include "winternl.h"
+#include "winioctl.h"
+#include "ntifs.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(cmd);
 
@@ -1217,7 +1220,7 @@ static BOOL WCMD_delete_confirm_wildcard(const WCHAR *filename, BOOL *pPrompted)
 
         /* Convert path into actual directory spec */
         GetFullPathNameW(filename, ARRAY_SIZE(fpath), fpath, NULL);
-        WCMD_splitpath(fpath, drive, dir, fname, ext);
+        _wsplitpath(fpath, drive, dir, fname, ext);
 
         /* Only prompt for * and *.*, not *a, a*, *.a* etc */
         if ((lstrcmpW(fname, starW) == 0) &&
@@ -1352,7 +1355,7 @@ static BOOL WCMD_delete_one (const WCHAR *thisArg) {
 
       /* Convert path into actual directory spec */
       GetFullPathNameW(argCopy, ARRAY_SIZE(thisDir), thisDir, NULL);
-      WCMD_splitpath(thisDir, drive, dir, fname, ext);
+      _wsplitpath(thisDir, drive, dir, fname, ext);
 
       lstrcpyW(thisDir, drive);
       lstrcatW(thisDir, dir);
@@ -2938,8 +2941,14 @@ void WCMD_if (WCHAR *p, CMD_LIST **cmdList)
   int test;   /* Condition evaluation result */
   WCHAR *command;
 
+  /* Function evaluate_if_condition relies on the global variables quals, param1 and param2
+     set in a call to WCMD_parse before */
   if (evaluate_if_condition(p, &command, &test, &negate) == -1)
       goto syntax_err;
+
+  WINE_TRACE("p: %s, quals: %s, param1: %s, param2: %s, command: %s\n",
+             wine_dbgstr_w(p), wine_dbgstr_w(quals), wine_dbgstr_w(param1),
+             wine_dbgstr_w(param2), wine_dbgstr_w(command));
 
   /* Process rest of IF statement which is on the same line
      Note: This may process all or some of the cmdList (eg a GOTO) */
@@ -2986,7 +2995,7 @@ void WCMD_move (void)
              wine_dbgstr_w(param1), wine_dbgstr_w(output));
 
   /* Split into components */
-  WCMD_splitpath(input, drive, dir, fname, ext);
+  _wsplitpath(input, drive, dir, fname, ext);
 
   hff = FindFirstFileW(input, &fd);
   if (hff == INVALID_HANDLE_VALUE)
@@ -2997,6 +3006,7 @@ void WCMD_move (void)
     WCHAR  src[MAX_PATH];
     DWORD attribs;
     BOOL ok = TRUE;
+    DWORD flags = 0;
 
     WINE_TRACE("Processing file '%s'\n", wine_dbgstr_w(fd.cFileName));
 
@@ -3026,15 +3036,28 @@ void WCMD_move (void)
       WCHAR copycmd[MAXSTRING];
       DWORD len;
 
-      /* /-Y has the highest priority, then /Y and finally the COPYCMD env. variable */
+      /* Default whether automatic overwriting is on. If we are interactive then
+         we prompt by default, otherwise we overwrite by default
+         /-Y has the highest priority, then /Y and finally the COPYCMD env. variable */
       if (wcsstr (quals, parmNoY))
         force = FALSE;
       else if (wcsstr (quals, parmY))
         force = TRUE;
       else {
         static const WCHAR copyCmdW[] = {'C','O','P','Y','C','M','D','\0'};
+        /* By default, we will force the overwrite in batch mode and ask for
+         * confirmation in interactive mode. */
+        force = !interactive;
+        /* If COPYCMD is set, then we force the overwrite with /Y and ask for
+         * confirmation with /-Y. If COPYCMD is neither of those, then we use the
+         * default behavior. */
         len = GetEnvironmentVariableW(copyCmdW, copycmd, ARRAY_SIZE(copycmd));
-        force = (len && len < ARRAY_SIZE(copycmd) && !lstrcmpiW(copycmd, parmY));
+        if (len && len < ARRAY_SIZE(copycmd)) {
+          if (!lstrcmpiW (copycmd, parmY))
+            force = TRUE;
+          else if (!lstrcmpiW (copycmd, parmNoY))
+            force = FALSE;
+        }
       }
 
       /* Prompt if overwriting */
@@ -3045,20 +3068,14 @@ void WCMD_move (void)
         question = WCMD_format_string(WCMD_LoadMessage(WCMD_OVERWRITE), dest);
         ok = WCMD_ask_confirm(question, FALSE, NULL);
         LocalFree(question);
-
-        /* So delete the destination prior to the move */
-        if (ok) {
-          if (!DeleteFileW(dest)) {
-            WCMD_print_error ();
-            errorlevel = 1;
-            ok = FALSE;
-          }
-        }
       }
+
+      if (ok)
+        flags |= MOVEFILE_REPLACE_EXISTING;
     }
 
     if (ok) {
-      status = MoveFileW(src, dest);
+      status = MoveFileExW(src, dest, flags);
     } else {
       status = TRUE;
     }
@@ -3207,7 +3224,7 @@ void WCMD_rename (void)
   dotDst = wcschr(param2, '.');
 
   /* Split into components */
-  WCMD_splitpath(input, drive, dir, fname, ext);
+  _wsplitpath(input, drive, dir, fname, ext);
 
   hff = FindFirstFileW(input, &fd);
   if (hff == INVALID_HANDLE_VALUE)
@@ -3492,7 +3509,7 @@ void WCMD_setshow_default (const WCHAR *args) {
 
           /* Convert path into actual directory spec */
           GetFullPathNameW(string, ARRAY_SIZE(fpath), fpath, NULL);
-          WCMD_splitpath(fpath, drive, dir, fname, ext);
+          _wsplitpath(fpath, drive, dir, fname, ext);
 
           /* Rebuild path */
           wsprintfW(string, fmt, drive, dir, fd.cFileName);
@@ -5049,6 +5066,49 @@ void WCMD_color (void) {
   }
 }
 
+BOOL WCMD_create_junction(WCHAR *link, WCHAR *target) {
+    static INT struct_size = offsetof(REPARSE_DATA_BUFFER, SymbolicLinkReparseBuffer.PathBuffer[0]);
+    static INT header_size = offsetof(REPARSE_DATA_BUFFER, GenericReparseBuffer);
+    INT buffer_size, data_size, string_len, prefix_len;
+    WCHAR *subst_dest, *print_dest, *string;
+    REPARSE_DATA_BUFFER *buffer;
+    UNICODE_STRING nt_name;
+    NTSTATUS status;
+    HANDLE hlink;
+    DWORD dwret;
+    BOOL ret;
+
+    if (!CreateDirectoryW(link, NULL ))
+        return FALSE;
+    hlink = CreateFileW(link, GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING,
+                        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, 0);
+    if (hlink == INVALID_HANDLE_VALUE)
+        return FALSE;
+    status = RtlDosPathNameToNtPathName_U_WithStatus(target, &nt_name, NULL, NULL);
+    if (status)
+        return FALSE;
+    prefix_len = strlen("\\??\\");
+    string = nt_name.Buffer;
+    string_len = lstrlenW( &string[prefix_len] );
+    data_size = (prefix_len + 2 * string_len + 2) * sizeof(WCHAR);
+    buffer_size = struct_size + data_size;
+    buffer = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, buffer_size );
+    buffer->ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
+    buffer->ReparseDataLength = struct_size - header_size + data_size;
+    buffer->MountPointReparseBuffer.SubstituteNameLength = (prefix_len + string_len) * sizeof(WCHAR);
+    buffer->MountPointReparseBuffer.PrintNameOffset = (prefix_len + string_len + 1) * sizeof(WCHAR);
+    buffer->MountPointReparseBuffer.PrintNameLength = string_len * sizeof(WCHAR);
+    subst_dest = &buffer->MountPointReparseBuffer.PathBuffer[0];
+    print_dest = &buffer->MountPointReparseBuffer.PathBuffer[prefix_len + string_len + 1];
+    lstrcpyW(subst_dest, string);
+    lstrcpyW(print_dest, &string[prefix_len]);
+    RtlFreeUnicodeString(&nt_name );
+    ret = DeviceIoControl(hlink, FSCTL_SET_REPARSE_POINT, (LPVOID)buffer, buffer_size, NULL, 0,
+                          &dwret, 0 );
+    HeapFree(GetProcessHeap(), 0, buffer);
+    return ret;
+}
+
 /****************************************************************************
  * WCMD_mklink
  */
@@ -5100,7 +5160,7 @@ void WCMD_mklink(WCHAR *args)
     else if(!junction)
         ret = CreateSymbolicLinkW(file1, file2, isdir);
     else
-        WINE_TRACE("Juction links currently not supported.\n");
+        ret = WCMD_create_junction(file1, file2);
 
     if(!ret)
         WCMD_output_stderr(WCMD_LoadMessage(WCMD_READFAIL), file1);

@@ -97,9 +97,6 @@
 /* Define to 1 if you have the <cups/ppd.h> header file. */
 #undef HAVE_CUPS_PPD_H
 
-/* Define to 1 if you have the <curses.h> header file. */
-#undef HAVE_CURSES_H
-
 /* Define to 1 if you have the <dirent.h> header file. */
 #undef HAVE_DIRENT_H
 
@@ -113,8 +110,8 @@
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #undef HAVE_DLFCN_H
 
-/* Define to 1 if you have the `dlopen' function. */
-#undef HAVE_DLOPEN
+/* Define to 1 if you have the `dlinfo' function. */
+#undef HAVE_DLINFO
 
 /* Define to 1 if you have the <EGL/egl.h> header file. */
 #undef HAVE_EGL_EGL_H
@@ -155,6 +152,13 @@
 /* Define to 1 if you have the `fallocate' function. */
 #undef HAVE_FALLOCATE
 
+/* Define to 1 if you have the `FAudioCreateReverb9WithCustomAllocatorEXT'
+   function. */
+#undef HAVE_FAUDIOCREATEREVERB9WITHCUSTOMALLOCATOREXT
+
+/* Define to 1 if you have the `FAudioLinkedVersion' function. */
+#undef HAVE_FAUDIOLINKEDVERSION
+
 /* Define to 1 if you have the `FAudio_CommitOperationSet' function. */
 #undef HAVE_FAUDIO_COMMITOPERATIONSET
 
@@ -163,6 +167,9 @@
 
 /* Define to 1 if you have the `ffs' function. */
 #undef HAVE_FFS
+
+/* Define to 1 if you have the `finite' function. */
+#undef HAVE_FINITE
 
 /* Define to 1 if you have the `finitef' function. */
 #undef HAVE_FINITEF
@@ -221,6 +228,9 @@
 /* Define to 1 if you have the `futimesat' function. */
 #undef HAVE_FUTIMESAT
 
+/* Define to 1 if you have the <gcrypt.h> header file. */
+#undef HAVE_GCRYPT_H
+
 /* Define to 1 if you have the `getaddrinfo' function. */
 #undef HAVE_GETADDRINFO
 
@@ -245,11 +255,8 @@
 /* Define to 1 if you have the `getopt_long_only' function. */
 #undef HAVE_GETOPT_LONG_ONLY
 
-/* Define to 1 if you have the `getprotobyname' function. */
-#undef HAVE_GETPROTOBYNAME
-
-/* Define to 1 if you have the `getprotobynumber' function. */
-#undef HAVE_GETPROTOBYNUMBER
+/* Define to 1 if you have the `getrandom' function. */
+#undef HAVE_GETRANDOM
 
 /* Define to 1 if you have the `getservbyport' function. */
 #undef HAVE_GETSERVBYPORT
@@ -281,6 +288,9 @@
 /* Define to 1 if you have the <gssapi/gssapi.h> header file. */
 #undef HAVE_GSSAPI_GSSAPI_H
 
+/* Define to 1 if you have the `gst_structure_get_list' function. */
+#undef HAVE_GST_STRUCTURE_GET_LIST
+
 /* Define to 1 if you have the <gtk/gtk.h> header file. */
 #undef HAVE_GTK_GTK_H
 
@@ -299,20 +309,8 @@
 /* Define to 1 if you have the `ilogbf' function. */
 #undef HAVE_ILOGBF
 
-/* Define to 1 if you have the `inet_addr' function. */
-#undef HAVE_INET_ADDR
-
 /* Define to 1 if you have the <inet/mib2.h> header file. */
 #undef HAVE_INET_MIB2_H
-
-/* Define to 1 if you have the `inet_network' function. */
-#undef HAVE_INET_NETWORK
-
-/* Define to 1 if you have the `inet_ntop' function. */
-#undef HAVE_INET_NTOP
-
-/* Define to 1 if you have the `inet_pton' function. */
-#undef HAVE_INET_PTON
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
@@ -557,9 +555,6 @@
 /* Define to 1 if you have the <machine/cpu.h> header file. */
 #undef HAVE_MACHINE_CPU_H
 
-/* Define to 1 if you have the <machine/limits.h> header file. */
-#undef HAVE_MACHINE_LIMITS_H
-
 /* Define to 1 if you have the <machine/sysarch.h> header file. */
 #undef HAVE_MACHINE_SYSARCH_H
 
@@ -587,17 +582,11 @@
 /* Define to 1 if you have the <mntent.h> header file. */
 #undef HAVE_MNTENT_H
 
-/* Define to 1 if you have the `mousemask' function. */
-#undef HAVE_MOUSEMASK
-
 /* Define to 1 if you have the <mpg123.h> header file. */
 #undef HAVE_MPG123_H
 
 /* Define if MTLDevice protocol has registryID property. */
 #undef HAVE_MTLDEVICE_REGISTRYID
-
-/* Define to 1 if you have the <ncurses.h> header file. */
-#undef HAVE_NCURSES_H
 
 /* Define to 1 if you have the `nearbyint' function. */
 #undef HAVE_NEARBYINT
@@ -713,15 +702,6 @@
 /* Define to 1 if you have the <port.h> header file. */
 #undef HAVE_PORT_H
 
-/* Define to 1 if you have the `powl' function. */
-#undef HAVE_POWL
-
-/* Define if we can use ppdev.h for parallel port access */
-#undef HAVE_PPDEV
-
-/* Define to 1 if you have the `ppoll' function. */
-#undef HAVE_PPOLL
-
 /* Define to 1 if you have the `prctl' function. */
 #undef HAVE_PRCTL
 
@@ -785,6 +765,9 @@
 /* Define to 1 if you have the <resolv.h> header file. */
 #undef HAVE_RESOLV_H
 
+/* Define to 1 if you have the `res_getservers' function. */
+#undef HAVE_RES_GETSERVERS
+
 /* Define to 1 if you have the `rint' function. */
 #undef HAVE_RINT
 
@@ -796,6 +779,9 @@
 
 /* Define to 1 if you have the `roundf' function. */
 #undef HAVE_ROUNDF
+
+/* Define to 1 if you have the <sasl/sasl.h> header file. */
+#undef HAVE_SASL_SASL_H
 
 /* Define to 1 if you have the <sched.h> header file. */
 #undef HAVE_SCHED_H
@@ -838,9 +824,6 @@
 
 /* Define to 1 if `interface_id' is a member of `sg_io_hdr_t'. */
 #undef HAVE_SG_IO_HDR_T_INTERFACE_ID
-
-/* Define to 1 if you have the `shm_open' function. */
-#undef HAVE_SHM_OPEN
 
 /* Define if sigaddset is supported */
 #undef HAVE_SIGADDSET
@@ -908,9 +891,6 @@
 /* Define to 1 if `ips_total' is a member of `struct ip_stats'. */
 #undef HAVE_STRUCT_IP_STATS_IPS_TOTAL
 
-/* Define to 1 if the system has the type `struct link_map'. */
-#undef HAVE_STRUCT_LINK_MAP
-
 /* Define to 1 if `msg_accrights' is a member of `struct msghdr'. */
 #undef HAVE_STRUCT_MSGHDR_MSG_ACCRIGHTS
 
@@ -925,9 +905,6 @@
 
 /* Define to 1 if `name' is a member of `struct option'. */
 #undef HAVE_STRUCT_OPTION_NAME
-
-/* Define to 1 if the system has the type `struct r_debug'. */
-#undef HAVE_STRUCT_R_DEBUG
 
 /* Define to 1 if `sin6_scope_id' is a member of `struct sockaddr_in6'. */
 #undef HAVE_STRUCT_SOCKADDR_IN6_SIN6_SCOPE_ID
@@ -995,6 +972,12 @@
 /* Define to 1 if `__st_birthtime' is a member of `struct stat'. */
 #undef HAVE_STRUCT_STAT___ST_BIRTHTIME
 
+/* Define to 1 if `mem_unit' is a member of `struct sysinfo'. */
+#undef HAVE_STRUCT_SYSINFO_MEM_UNIT
+
+/* Define to 1 if `totalram' is a member of `struct sysinfo'. */
+#undef HAVE_STRUCT_SYSINFO_TOTALRAM
+
 /* Define to 1 if `tcps_connattempt' is a member of `struct tcpstat'. */
 #undef HAVE_STRUCT_TCPSTAT_TCPS_CONNATTEMPT
 
@@ -1039,20 +1022,11 @@
 /* Define to 1 if you have the <sys/cdio.h> header file. */
 #undef HAVE_SYS_CDIO_H
 
-/* Define to 1 if you have the <sys/elf32.h> header file. */
-#undef HAVE_SYS_ELF32_H
-
 /* Define to 1 if you have the <sys/epoll.h> header file. */
 #undef HAVE_SYS_EPOLL_H
 
-/* Define to 1 if you have the <sys/eventfd.h> header file. */
-#undef HAVE_SYS_EVENTFD_H
-
 /* Define to 1 if you have the <sys/event.h> header file. */
 #undef HAVE_SYS_EVENT_H
-
-/* Define to 1 if you have the <sys/exec_elf.h> header file. */
-#undef HAVE_SYS_EXEC_ELF_H
 
 /* Define to 1 if you have the <sys/extattr.h> header file. */
 #undef HAVE_SYS_EXTATTR_H
@@ -1068,9 +1042,6 @@
 
 /* Define to 1 if you have the <sys/ipc.h> header file. */
 #undef HAVE_SYS_IPC_H
-
-/* Define to 1 if you have the <sys/limits.h> header file. */
-#undef HAVE_SYS_LIMITS_H
 
 /* Define to 1 if you have the <sys/link.h> header file. */
 #undef HAVE_SYS_LINK_H
@@ -1107,6 +1078,9 @@
 
 /* Define to 1 if you have the <sys/queue.h> header file. */
 #undef HAVE_SYS_QUEUE_H
+
+/* Define to 1 if you have the <sys/random.h> header file. */
+#undef HAVE_SYS_RANDOM_H
 
 /* Define to 1 if you have the <sys/resource.h> header file. */
 #undef HAVE_SYS_RESOURCE_H
@@ -1213,9 +1187,6 @@
 /* Define to 1 if you have the <tiffio.h> header file. */
 #undef HAVE_TIFFIO_H
 
-/* Define to 1 if you have the `timegm' function. */
-#undef HAVE_TIMEGM
-
 /* Define to 1 if you have the `trunc' function. */
 #undef HAVE_TRUNC
 
@@ -1234,20 +1205,11 @@
 /* Define to 1 if you have the <utime.h> header file. */
 #undef HAVE_UTIME_H
 
-/* Define if you have the libva development files */
-#undef HAVE_VAAPI
-
 /* Define to 1 if you have the <valgrind/memcheck.h> header file. */
 #undef HAVE_VALGRIND_MEMCHECK_H
 
 /* Define to 1 if you have the <valgrind/valgrind.h> header file. */
 #undef HAVE_VALGRIND_VALGRIND_H
-
-/* Define to 1 if you have the <va/va_drm.h> header file. */
-#undef HAVE_VA_VA_DRM_H
-
-/* Define to 1 if you have the <va/va_x11.h> header file. */
-#undef HAVE_VA_VA_X11_H
 
 /* Define to 1 if you have the <X11/extensions/shape.h> header file. */
 #undef HAVE_X11_EXTENSIONS_SHAPE_H
@@ -1330,9 +1292,6 @@
 /* Define if Xrandr has the XRRGetProviderResources function */
 #undef HAVE_XRRGETPROVIDERRESOURCES
 
-/* Define if Xrandr has the XRRGetScreenResources function */
-#undef HAVE_XRRGETSCREENRESOURCES
-
 /* Define to 1 if you have the `y0' function. */
 #undef HAVE_Y0
 
@@ -1342,17 +1301,8 @@
 /* Define to 1 if you have the `yn' function. */
 #undef HAVE_YN
 
-/* Define to 1 if you have the `z' library (-lz). */
-#undef HAVE_ZLIB
-
-/* Define to 1 if you have the <zlib.h> header file. */
-#undef HAVE_ZLIB_H
-
 /* Define to 1 if you have the `_spawnvp' function. */
 #undef HAVE__SPAWNVP
-
-/* Define to 1 if you have the `__builtin_ctzl' built-in function. */
-#undef HAVE___BUILTIN_CTZL
 
 /* Define to 1 if you have the `__builtin_popcount' built-in function. */
 #undef HAVE___BUILTIN_POPCOUNT
@@ -1402,9 +1352,6 @@
 /* Define to the soname of the libcups library. */
 #undef SONAME_LIBCUPS
 
-/* Define to the soname of the libcurses library. */
-#undef SONAME_LIBCURSES
-
 /* Define to the soname of the libdbus-1 library. */
 #undef SONAME_LIBDBUS_1
 
@@ -1419,6 +1366,9 @@
 
 /* Define to the soname of the libfreetype library. */
 #undef SONAME_LIBFREETYPE
+
+/* Define to the soname of the libgcrypt library. */
+#undef SONAME_LIBGCRYPT
 
 /* Define to the soname of the libGL library. */
 #undef SONAME_LIBGL
@@ -1456,9 +1406,6 @@
 /* Define to the soname of the libMoltenVK library. */
 #undef SONAME_LIBMOLTENVK
 
-/* Define to the soname of the libncurses library. */
-#undef SONAME_LIBNCURSES
-
 /* Define to the soname of the libnetapi library. */
 #undef SONAME_LIBNETAPI
 
@@ -1492,17 +1439,11 @@
 /* Define to the soname of the libv4l2 library. */
 #undef SONAME_LIBV4L2
 
-/* Define to the soname of the libva library. */
-#undef SONAME_LIBVA
-
-/* Define to the soname of the libva-drm library. */
-#undef SONAME_LIBVA_DRM
-
-/* Define to the soname of the libva-x11 library. */
-#undef SONAME_LIBVA_X11
-
 /* Define to the soname of the libvkd3d library. */
 #undef SONAME_LIBVKD3D
+
+/* Define to the soname of the libvkd3d-shader library. */
+#undef SONAME_LIBVKD3D_SHADER
 
 /* Define to the soname of the libvulkan library. */
 #undef SONAME_LIBVULKAN

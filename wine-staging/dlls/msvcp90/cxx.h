@@ -247,6 +247,8 @@ static void init_ ## type ## _cxx(char *base) \
     DEFINE_RTTI_DATA(name, off, 3, cl1, cl2, cl3, NULL, NULL, NULL, NULL, NULL, NULL, mangled_name)
 #define DEFINE_RTTI_DATA4(name, off, cl1, cl2, cl3, cl4, mangled_name) \
     DEFINE_RTTI_DATA(name, off, 4, cl1, cl2, cl3, cl4, NULL, NULL, NULL, NULL, NULL, mangled_name)
+#define DEFINE_RTTI_DATA5(name, off, cl1, cl2, cl3, cl4, cl5, mangled_name) \
+    DEFINE_RTTI_DATA(name, off, 5, cl1, cl2, cl3, cl4, cl5, NULL, NULL, NULL, NULL, mangled_name)
 #define DEFINE_RTTI_DATA8(name, off, cl1, cl2, cl3, cl4, cl5, cl6, cl7, cl8, mangled_name) \
     DEFINE_RTTI_DATA(name, off, 8, cl1, cl2, cl3, cl4, cl5, cl6, cl7, cl8, NULL, mangled_name)
 #define DEFINE_RTTI_DATA9(name, off, cl1, cl2, cl3, cl4, cl5, cl6, cl7, cl8, cl9, mangled_name) \
@@ -263,7 +265,7 @@ static void init_ ## type ## _cxx(char *base) \
 #define DEFINE_CXX_DATA4(name, cl1, cl2, cl3, cl4, dtor) \
     DEFINE_CXX_DATA(name, 4, cl1, cl2, cl3, cl4, dtor)
 
-#if defined(__i386__) && !defined(__MINGW32__)
+#ifdef __ASM_USE_THISCALL_WRAPPER
 
 #define CALL_VTBL_FUNC(this, off, ret, type, args) ((ret (WINAPI*)type)&vtbl_wrapper_##off)args
 

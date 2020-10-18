@@ -53,6 +53,8 @@
 #define MSVCRT_FLT_MIN_10_EXP (-37)
 #define MSVCRT_DBL_MAX_10_EXP 308
 #define MSVCRT_DBL_MIN_10_EXP (-307)
+#define DBL80_MAX_10_EXP 4932
+#define DBL80_MIN_10_EXP -4951
 #define MSVCRT_DBL_DIG 15
 #ifdef _WIN64
 #define MSVCRT_SIZE_MAX MSVCRT_UI64_MAX
@@ -75,6 +77,7 @@ typedef unsigned int   MSVCRT__fsize_t;
 typedef int            MSVCRT_long;
 typedef unsigned int   MSVCRT_ulong;
 typedef __int64        MSVCRT_longlong;
+typedef long long      MSVCRT_intmax_t;
 #ifdef _WIN64
 typedef unsigned __int64 MSVCRT_size_t;
 typedef __int64 MSVCRT_intptr_t;
@@ -285,9 +288,8 @@ struct __thread_data {
     int                             unk5[1];
     MSVCRT_terminate_function       terminate_handler;
     MSVCRT_unexpected_function      unexpected_handler;
-    MSVCRT__se_translator_function  se_translator;
-    void                           *unk6[3];
-    int                             unk7;
+    MSVCRT__se_translator_function  se_translator;      /* preserve offset to exc_record and processing_throw */
+    void                           *unk6;
     EXCEPTION_RECORD               *exc_record;
     CONTEXT                        *ctx_record;
     int                             processing_throw;
@@ -315,6 +317,7 @@ extern unsigned int MSVCRT___lc_codepage;
 extern int MSVCRT___lc_collate_cp;
 extern WORD MSVCRT__ctype [257];
 extern BOOL initial_locale DECLSPEC_HIDDEN;
+extern WORD *MSVCRT__pwctype;
 
 void msvcrt_set_errno(int) DECLSPEC_HIDDEN;
 #if _MSVCR_VER >= 80
@@ -447,6 +450,8 @@ struct MSVCRT__iobuf {
 };
 
 typedef struct MSVCRT__iobuf MSVCRT_FILE;
+
+extern MSVCRT_FILE MSVCRT__iob[];
 
 struct MSVCRT_lconv {
     char* decimal_point;
@@ -1108,12 +1113,13 @@ MSVCRT___time32_t __cdecl MSVCRT__time32(MSVCRT___time32_t*);
 MSVCRT___time64_t __cdecl MSVCRT__time64(MSVCRT___time64_t*);
 MSVCRT_FILE*   __cdecl MSVCRT__fdopen(int, const char *);
 MSVCRT_FILE*   __cdecl MSVCRT__wfdopen(int, const MSVCRT_wchar_t *);
+int            WINAPIV MSVCRT_fwprintf(MSVCRT_FILE *file, const MSVCRT_wchar_t *format, ...);
 int            __cdecl MSVCRT_vsnprintf(char *str, MSVCRT_size_t len, const char *format, __ms_va_list valist);
 int            __cdecl MSVCRT_vsnwprintf(MSVCRT_wchar_t *str, MSVCRT_size_t len,
                                        const MSVCRT_wchar_t *format, __ms_va_list valist );
-int            WINAPIV MSVCRT__snwprintf(MSVCRT_wchar_t*, unsigned int, const MSVCRT_wchar_t*, ...);
+int            WINAPIV MSVCRT__snwprintf(MSVCRT_wchar_t*, MSVCRT_size_t, const MSVCRT_wchar_t*, ...);
 int            WINAPIV MSVCRT_sprintf(char*,const char*,...);
-int            WINAPIV MSVCRT__snprintf(char*,unsigned int,const char*,...);
+int            WINAPIV MSVCRT__snprintf(char*,MSVCRT_size_t,const char*,...);
 int            WINAPIV MSVCRT__scprintf(const char*,...);
 int            __cdecl MSVCRT_raise(int sig);
 int            __cdecl MSVCRT__set_printf_count_output(int);
@@ -1128,6 +1134,7 @@ void __cdecl MSVCRT__free_locale(MSVCRT__locale_t);
 void free_locinfo(MSVCRT_pthreadlocinfo) DECLSPEC_HIDDEN;
 void free_mbcinfo(MSVCRT_pthreadmbcinfo) DECLSPEC_HIDDEN;
 int _setmbcp_l(int, LCID, MSVCRT_pthreadmbcinfo) DECLSPEC_HIDDEN;
+int __cdecl __crtLCMapStringA(LCID, DWORD, const char*, int, char*, int, unsigned int, int) DECLSPEC_HIDDEN;
 
 #ifndef __WINE_MSVCRT_TEST
 int            __cdecl MSVCRT__write(int,const void*,unsigned int);
@@ -1192,8 +1199,43 @@ int __cdecl      MSVCRT_strcmp(const char*, const char*);
 char* __cdecl    MSVCRT_strstr(const char*, const char*);
 unsigned int __cdecl MSVCRT__get_output_format(void);
 char* __cdecl MSVCRT_strtok_s(char*, const char*, char**);
-double parse_double(MSVCRT_wchar_t (*)(void*), void (*)(void*), void*, MSVCRT_pthreadlocinfo, int*);
+char* __cdecl MSVCRT__itoa(int, char*, int);
+int __cdecl MSVCRT_wcsncmp(const MSVCRT_wchar_t*, const MSVCRT_wchar_t*, MSVCRT_size_t);
+int __cdecl MSVCRT__wcsnicmp(const MSVCRT_wchar_t*, const MSVCRT_wchar_t*, MSVCRT_size_t);
+int __cdecl MSVCRT_towlower(MSVCRT_wint_t);
+int __cdecl MSVCRT_towupper(MSVCRT_wint_t);
+int __cdecl MSVCRT__isprint_l(int c, MSVCRT__locale_t locale);
+int __cdecl MSVCRT__iswalnum_l(MSVCRT_wchar_t, MSVCRT__locale_t);
+int __cdecl MSVCRT__iswdigit_l(MSVCRT_wchar_t, MSVCRT__locale_t);
+int __cdecl MSVCRT__iswgraph_l(MSVCRT_wchar_t, MSVCRT__locale_t);
+int __cdecl MSVCRT__iswalpha_l(MSVCRT_wchar_t, MSVCRT__locale_t);
+int __cdecl MSVCRT__iswlower_l(MSVCRT_wchar_t, MSVCRT__locale_t);
+int __cdecl MSVCRT__iswupper_l(MSVCRT_wchar_t, MSVCRT__locale_t);
+int __cdecl MSVCRT__iswprint_l(MSVCRT_wchar_t, MSVCRT__locale_t);
+int __cdecl MSVCRT__iswpunct_l(MSVCRT_wchar_t, MSVCRT__locale_t);
+MSVCRT_size_t __cdecl MSVCRT_wcslen(const MSVCRT_wchar_t*);
+MSVCRT_wchar_t* __cdecl MSVCRT_wcscpy(MSVCRT_wchar_t*, const MSVCRT_wchar_t*);
+MSVCRT_wchar_t* __cdecl MSVCRT_wcschr(const MSVCRT_wchar_t*, MSVCRT_wchar_t);
+MSVCRT_wchar_t* __cdecl MSVCRT_wcscat(MSVCRT_wchar_t*, const MSVCRT_wchar_t*);
 
+enum fpmod {
+    FP_ROUND_ZERO, /* only used when dropped part contains only zeros */
+    FP_ROUND_DOWN,
+    FP_ROUND_EVEN,
+    FP_ROUND_UP,
+    FP_VAL_INFINITY,
+    FP_VAL_NAN
+};
+
+struct fpnum {
+    int sign;
+    int exp;
+    ULONGLONG m;
+    enum fpmod mod;
+};
+struct fpnum fpnum_parse(MSVCRT_wchar_t (*)(void*), void (*)(void*),
+        void*, MSVCRT_pthreadlocinfo, BOOL) DECLSPEC_HIDDEN;
+int fpnum_double(struct fpnum*, double*) DECLSPEC_HIDDEN;
 /* Maybe one day we'll enable the invalid parameter handlers with the full set of information (msvcrXXd)
  *      #define MSVCRT_INVALID_PMT(x) MSVCRT_call_invalid_parameter_handler(x, __FUNCTION__, __FILE__, __LINE__, 0)
  *      #define MSVCRT_CHECK_PMT(x)   ((x) ? TRUE : MSVCRT_INVALID_PMT(#x),FALSE)
@@ -1272,8 +1314,9 @@ extern char* __cdecl __unDName(char *,const char*,int,malloc_func_t,free_func_t,
 #define UCRTBASE_PRINTF_LEGACY_WIDE_SPECIFIERS           (0x0004)
 #define UCRTBASE_PRINTF_LEGACY_MSVCRT_COMPATIBILITY      (0x0008)
 #define UCRTBASE_PRINTF_LEGACY_THREE_DIGIT_EXPONENTS     (0x0010)
+#define UCRTBASE_PRINTF_STANDARD_ROUNDING                (0x0020)
 
-#define UCRTBASE_PRINTF_MASK                             (0x001F)
+#define UCRTBASE_PRINTF_MASK                             (0x003F)
 
 #define MSVCRT_PRINTF_POSITIONAL_PARAMS                  (0x0100)
 #define MSVCRT_PRINTF_INVOKE_INVALID_PARAM_HANDLER       (0x0200)

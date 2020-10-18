@@ -253,7 +253,7 @@ static void	WCUSER_ComputePositions(struct inner_data* data)
     }
 
     SetWindowPos(data->hWnd, 0, 0, 0, r.right - r.left + dx, r.bottom - r.top + dy,
-		 SWP_NOMOVE|SWP_NOZORDER);
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
     WCUSER_ShapeCursor(data, data->curcfg.cursor_size, data->curcfg.cursor_visible, TRUE);
     WCUSER_PosCursor(data);
 }
@@ -267,7 +267,7 @@ static void	WCUSER_SetTitle(const struct inner_data* data)
 {
     WCHAR	buffer[256];
 
-    if (WINECON_GetConsoleTitle(data->hConIn, buffer, sizeof(buffer)))
+    if (WINECON_GetConsoleTitle(data->console, buffer, sizeof(buffer)))
         SetWindowTextW(data->hWnd, buffer);
 }
 
@@ -687,7 +687,7 @@ static void	WCUSER_CopySelectionToClipboard(const struct inner_data* data)
 	    LPWSTR end;
 	    DWORD count;
 
-	    ReadConsoleOutputCharacterW(data->hConOut, p, w - 1, c, &count);
+	    ReadConsoleOutputCharacterW(data->console, p, w - 1, c, &count);
 
 	    /* strip spaces from the end of the line */
 	    end = p + w - 1;
@@ -738,7 +738,7 @@ static void	WCUSER_PasteFromClipboard(struct inner_data* data)
 	    ir[1] = ir[0];
 	    ir[1].Event.KeyEvent.bKeyDown = FALSE;
 
-            WriteConsoleInputW(data->hConIn, ir, 2, &n);
+            WriteConsoleInputW(data->console, ir, 2, &n);
 	}
 	GlobalUnlock(h);
     }
@@ -1052,7 +1052,7 @@ static void    WCUSER_GenerateKeyInputRecord(struct inner_data* data, BOOL down,
     ir.Event.KeyEvent.uChar.UnicodeChar = last; /* FIXME: HACKY... and buggy because it should be a stack, not a single value */
     if (!down) last = 0;
 
-    WriteConsoleInputW(data->hConIn, &ir, 1, &n);
+    WriteConsoleInputW(data->console, &ir, 1, &n);
 }
 
 /******************************************************************
@@ -1068,7 +1068,7 @@ static void    WCUSER_GenerateMouseInputRecord(struct inner_data* data, COORD c,
     DWORD               mode, n;
 
     /* MOUSE_EVENTs shouldn't be sent unless ENABLE_MOUSE_INPUT is active */
-    if (!GetConsoleMode(data->hConIn, &mode) || !(mode & ENABLE_MOUSE_INPUT))
+    if (!GetConsoleMode(data->console, &mode) || !(mode & ENABLE_MOUSE_INPUT))
         return;
 
     ir.EventType = MOUSE_EVENT;
@@ -1083,7 +1083,7 @@ static void    WCUSER_GenerateMouseInputRecord(struct inner_data* data, COORD c,
     ir.Event.MouseEvent.dwControlKeyState = WCUSER_GetCtrlKeyState(keyState);
     ir.Event.MouseEvent.dwEventFlags = event;
 
-    WriteConsoleInputW(data->hConIn, &ir, 1, &n);
+    WriteConsoleInputW(data->console, &ir, 1, &n);
 }
 
 /******************************************************************
@@ -1365,7 +1365,7 @@ static int WCUSER_MainLoop(struct inner_data* data)
     ShowWindow(data->hWnd, data->nCmdShow);
     while (!data->dying || !data->curcfg.exit_on_die)
     {
-	switch (MsgWaitForMultipleObjects(1, &data->hSynchro, FALSE, INFINITE, QS_ALLINPUT))
+	switch (MsgWaitForMultipleObjects(1, &data->overlapped.hEvent, FALSE, INFINITE, QS_ALLINPUT))
 	{
 	case WAIT_OBJECT_0:
 	    WINECON_GrabChanges(data);
@@ -1437,7 +1437,7 @@ enum init_return WCUSER_InitBackend(struct inner_data* data)
     RegisterClassW(&wndclass);
 
     data->hWnd = CreateWindowW(wndclass.lpszClassName, NULL,
-                               WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MINIMIZEBOX|WS_HSCROLL|WS_VSCROLL,
+                               WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MINIMIZEBOX|WS_MAXIMIZEBOX|WS_HSCROLL|WS_VSCROLL,
                                CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, 0, 0, wndclass.hInstance, data);
     if (!data->hWnd) return init_not_supported;
 

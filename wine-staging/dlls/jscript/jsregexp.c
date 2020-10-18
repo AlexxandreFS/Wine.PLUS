@@ -286,10 +286,8 @@ static INT index_from_val(script_ctx_t *ctx, jsval_t v)
     HRESULT hres;
 
     hres = to_number(ctx, v, &n);
-    if(FAILED(hres)) {
-        clear_ei(ctx); /* FIXME: Move ignoring exceptions to to_primitive */
+    if(FAILED(hres))
         return 0;
-    }
 
     n = floor(n);
     return is_int32(n) ? n : 0;
@@ -331,8 +329,8 @@ static HRESULT RegExp_toString(script_ctx_t *ctx, vdisp_t *jsthis, WORD flags, u
     TRACE("\n");
 
     if(!is_vclass(jsthis, JSCLASS_REGEXP)) {
-        FIXME("Not a RegExp\n");
-        return E_NOTIMPL;
+        WARN("Not a RegExp\n");
+        return JS_E_REGEXP_EXPECTED;
     }
 
     regexp = regexp_from_vdisp(jsthis);
@@ -561,7 +559,7 @@ static HRESULT RegExp_value(script_ctx_t *ctx, vdisp_t *jsthis, WORD flags, unsi
 
     switch(flags) {
     case INVOKE_FUNC:
-        return throw_type_error(ctx, JS_E_FUNCTION_EXPECTED, NULL);
+        return JS_E_FUNCTION_EXPECTED;
     default:
         FIXME("unimplemented flags %x\n", flags);
         return E_NOTIMPL;
@@ -673,10 +671,10 @@ HRESULT create_regexp(script_ctx_t *ctx, jsstr_t *src, DWORD flags, jsdisp_t **r
 
 HRESULT create_regexp_var(script_ctx_t *ctx, jsval_t src_arg, jsval_t *flags_arg, jsdisp_t **ret)
 {
-    unsigned flags, opt_len = 0;
+    unsigned flags = 0;
     const WCHAR *opt = NULL;
     jsstr_t *src;
-    HRESULT hres;
+    HRESULT hres = S_OK;
 
     if(is_object_instance(src_arg)) {
         jsdisp_t *obj;
@@ -695,33 +693,31 @@ HRESULT create_regexp_var(script_ctx_t *ctx, jsval_t src_arg, jsval_t *flags_arg
         }
     }
 
-    if(!is_string(src_arg)) {
-        FIXME("src_arg = %s\n", debugstr_jsval(src_arg));
-        return E_NOTIMPL;
-    }
-
-    src = get_string(src_arg);
-
-    if(flags_arg) {
-        jsstr_t *opt_str;
-
-        if(!is_string(*flags_arg)) {
-            FIXME("unimplemented for %s\n", debugstr_jsval(*flags_arg));
-            return E_NOTIMPL;
-        }
-
-        opt_str = get_string(*flags_arg);
-        opt = jsstr_flatten(opt_str);
-        if(!opt)
-            return E_OUTOFMEMORY;
-        opt_len = jsstr_length(opt_str);
-    }
-
-    hres = parse_regexp_flags(opt, opt_len, &flags);
+    if(is_undefined(src_arg))
+        src = jsstr_empty();
+    else
+        hres = to_string(ctx, src_arg, &src);
     if(FAILED(hres))
         return hres;
 
-    return create_regexp(ctx, src, flags, ret);
+    if(flags_arg && !is_undefined(*flags_arg)) {
+        jsstr_t *opt_str;
+
+        hres = to_string(ctx, *flags_arg, &opt_str);
+        if(SUCCEEDED(hres)) {
+            opt = jsstr_flatten(opt_str);
+            if(opt)
+                hres = parse_regexp_flags(opt, jsstr_length(opt_str), &flags);
+            else
+                hres = E_OUTOFMEMORY;
+            jsstr_release(opt_str);
+        }
+    }
+
+    if(SUCCEEDED(hres))
+        hres = create_regexp(ctx, src, flags, ret);
+    jsstr_release(src);
+    return hres;
 }
 
 HRESULT regexp_string_match(script_ctx_t *ctx, jsdisp_t *re, jsstr_t *jsstr, jsval_t *r)
@@ -937,7 +933,7 @@ static HRESULT RegExpConstr_value(script_ctx_t *ctx, vdisp_t *jsthis, WORD flags
                     if(is_class(jsdisp, JSCLASS_REGEXP)) {
                         if(argc > 1 && !is_undefined(argv[1])) {
                             jsdisp_release(jsdisp);
-                            return throw_regexp_error(ctx, JS_E_REGEXP_SYNTAX, NULL);
+                            return JS_E_REGEXP_SYNTAX;
                         }
 
                         if(r)
@@ -955,12 +951,7 @@ static HRESULT RegExpConstr_value(script_ctx_t *ctx, vdisp_t *jsthis, WORD flags
         jsdisp_t *ret;
         HRESULT hres;
 
-        if(!argc) {
-            FIXME("no args\n");
-            return E_NOTIMPL;
-        }
-
-        hres = create_regexp_var(ctx, argv[0], argc > 1 ? argv+1 : NULL, &ret);
+        hres = create_regexp_var(ctx, argc ? argv[0] : jsval_undefined(), argc > 1 ? argv+1 : NULL, &ret);
         if(FAILED(hres))
             return hres;
 

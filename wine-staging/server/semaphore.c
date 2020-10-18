@@ -58,19 +58,18 @@ static const struct object_ops semaphore_ops =
     add_queue,                     /* add_queue */
     remove_queue,                  /* remove_queue */
     semaphore_signaled,            /* signaled */
-    NULL,                          /* get_esync_fd */
     semaphore_satisfied,           /* satisfied */
     semaphore_signal,              /* signal */
     no_get_fd,                     /* get_fd */
     semaphore_map_access,          /* map_access */
     default_get_sd,                /* get_sd */
     default_set_sd,                /* set_sd */
+    default_get_full_name,         /* get_full_name */
     no_lookup_name,                /* lookup_name */
     directory_link_name,           /* link_name */
     default_unlink_name,           /* unlink_name */
     no_open_file,                  /* open_file */
     no_kernel_obj_list,            /* get_kernel_obj_list */
-    no_alloc_handle,               /* alloc_handle */
     no_close_handle,               /* close_handle */
     no_destroy                     /* destroy */
 };

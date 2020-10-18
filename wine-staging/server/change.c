@@ -88,7 +88,7 @@ struct dir
     uid_t          uid;      /* file stat.st_uid */
     struct list    entry;    /* entry in global change notifications list */
     unsigned int   filter;   /* notification filter */
-    int            notified; /* SIGIO counter */
+    volatile int   notified; /* SIGIO counter */
     int            want_data; /* return change data */
     int            subtree;  /* do we want to watch subdirectories? */
     struct list    change_records;   /* data for the change */
@@ -115,19 +115,18 @@ static const struct object_ops dir_ops =
     add_queue,                /* add_queue */
     remove_queue,             /* remove_queue */
     default_fd_signaled,      /* signaled */
-    default_fd_get_esync_fd,  /* get_esync_fd */
     no_satisfied,             /* satisfied */
     no_signal,                /* signal */
     dir_get_fd,               /* get_fd */
     default_fd_map_access,    /* map_access */
     dir_get_sd,               /* get_sd */
     dir_set_sd,               /* set_sd */
+    no_get_full_name,         /* get_full_name */
     no_lookup_name,           /* lookup_name */
     no_link_name,             /* link_name */
     NULL,                     /* unlink_name */
     no_open_file,             /* open_file */
     no_kernel_obj_list,       /* get_kernel_obj_list */
-    no_alloc_handle,          /* alloc_handle */
     dir_close_handle,         /* close_handle */
     dir_destroy               /* destroy */
 };
@@ -309,7 +308,7 @@ void do_change_notify( int unix_fd )
     LIST_FOR_EACH_ENTRY( dir, &change_list, struct dir, entry )
     {
         if (get_unix_fd( dir->fd ) != unix_fd) continue;
-        interlocked_xchg_add( &dir->notified, 1 );
+        dir->notified = 1;
         break;
     }
 }
@@ -321,8 +320,9 @@ void sigio_callback(void)
 
     LIST_FOR_EACH_ENTRY( dir, &change_list, struct dir, entry )
     {
-        if (interlocked_xchg( &dir->notified, 0 ))
-            fd_async_wake_up( dir->fd, ASYNC_TYPE_WAIT, STATUS_ALERTED );
+        if (!dir->notified) continue;
+        dir->notified = 0;
+        fd_async_wake_up( dir->fd, ASYNC_TYPE_WAIT, STATUS_ALERTED );
     }
 }
 

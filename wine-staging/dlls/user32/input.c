@@ -22,9 +22,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-#include "wine/port.h"
-
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
@@ -45,9 +42,9 @@
 #include "winerror.h"
 #include "win.h"
 #include "user_private.h"
+#include "dbt.h"
 #include "wine/server.h"
 #include "wine/debug.h"
-#include "wine/unicode.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(win);
 WINE_DECLARE_DEBUG_CHANNEL(keyboard);
@@ -365,10 +362,8 @@ BOOL WINAPI DECLSPEC_HOTPATCH ReleaseCapture(void)
  */
 HWND WINAPI GetCapture(void)
 {
-    shmlocal_t *shm = wine_get_shmlocal();
     HWND ret = 0;
 
-    if (shm) return wine_server_ptr_handle( shm->input_capture );
     SERVER_START_REQ( get_thread_input )
     {
         req->tid = GetCurrentThreadId();
@@ -435,7 +430,7 @@ SHORT WINAPI DECLSPEC_HOTPATCH GetAsyncKeyState( INT key )
                  * (like Adobe Photoshop CS5) expect that changes to the async key state
                  * are also immediately available in other threads. */
                 if (prev_key_state != key_state_info->state[key])
-                    counter = interlocked_xchg_add( &global_key_state_counter, 1 ) + 1;
+                    counter = InterlockedIncrement( &global_key_state_counter );
 
                 key_state_info->time    = GetTickCount();
                 key_state_info->counter = counter;
@@ -479,29 +474,17 @@ DWORD WINAPI GetQueueStatus( UINT flags )
  */
 BOOL WINAPI GetInputState(void)
 {
-    shmlocal_t *shm = wine_get_shmlocal();
     DWORD ret;
 
     check_for_events( QS_INPUT );
-
-    /* req->clear is not set, so we can safely get the
-     * wineserver status without an additional call. */
-    if (shm)
-    {
-        ret = shm->queue_bits;
-        goto done;
-    }
 
     SERVER_START_REQ( get_queue_status )
     {
         req->clear_bits = 0;
         wine_server_call( req );
-        ret = reply->wake_bits;
+        ret = reply->wake_bits & (QS_KEY | QS_MOUSEBUTTON);
     }
     SERVER_END_REQ;
-
-done:
-    ret &= (QS_KEY | QS_MOUSEBUTTON);
     return ret;
 }
 
@@ -512,7 +495,6 @@ done:
 BOOL WINAPI GetLastInputInfo(PLASTINPUTINFO plii)
 {
     BOOL ret;
-    shmglobal_t *shm = wine_get_shmglobal();
 
     TRACE("%p\n", plii);
 
@@ -520,12 +502,6 @@ BOOL WINAPI GetLastInputInfo(PLASTINPUTINFO plii)
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
-    }
-
-    if (shm)
-    {
-        plii->dwTime = shm->last_input_time;
-        return TRUE;
     }
 
     SERVER_START_REQ( get_last_input_time )
@@ -576,7 +552,7 @@ SHORT WINAPI DECLSPEC_HOTPATCH GetKeyState(INT vkey)
     {
         req->tid = GetCurrentThreadId();
         req->key = vkey;
-        if (!wine_server_call( req )) retval = (signed char)reply->state;
+        if (!wine_server_call( req )) retval = (signed char)(reply->state & 0x81);
     }
     SERVER_END_REQ;
     TRACE("key (0x%x) -> %x\n", vkey, retval);
@@ -590,6 +566,7 @@ SHORT WINAPI DECLSPEC_HOTPATCH GetKeyState(INT vkey)
 BOOL WINAPI DECLSPEC_HOTPATCH GetKeyboardState( LPBYTE state )
 {
     BOOL ret;
+    UINT i;
 
     TRACE("(%p)\n", state);
 
@@ -600,6 +577,7 @@ BOOL WINAPI DECLSPEC_HOTPATCH GetKeyboardState( LPBYTE state )
         req->key = -1;
         wine_server_set_reply( req, state, 256 );
         ret = !wine_server_call_err( req );
+        for (i = 0; i < 256; i++) state[i] &= 0x81;
     }
     SERVER_END_REQ;
     return ret;
@@ -1298,7 +1276,12 @@ TrackMouseEvent (TRACKMOUSEEVENT *ptme)
  *     Success: count of point set in the buffer
  *     Failure: -1
  */
-int WINAPI GetMouseMovePointsEx(UINT size, LPMOUSEMOVEPOINT ptin, LPMOUSEMOVEPOINT ptout, int count, DWORD res) {
+int WINAPI GetMouseMovePointsEx(UINT size, LPMOUSEMOVEPOINT ptin, LPMOUSEMOVEPOINT ptout, int count, DWORD res)
+{
+    POINT pos;
+    static BOOL once;
+    static INT last_x = 0;
+    static INT last_y = 0;
 
     if((size != sizeof(MOUSEMOVEPOINT)) || (count < 0) || (count > 64)) {
         SetLastError(ERROR_INVALID_PARAMETER);
@@ -1310,10 +1293,40 @@ int WINAPI GetMouseMovePointsEx(UINT size, LPMOUSEMOVEPOINT ptin, LPMOUSEMOVEPOI
         return -1;
     }
 
-    FIXME("(%d %p %p %d %d) stub\n", size, ptin, ptout, count, res);
+    if (!once++)
+        FIXME("(%d %p %p %d %d) semi-stub\n", size, ptin, ptout, count, res);
+    else
+        TRACE("(%d %p %p %d %d) semi-stub\n", size, ptin, ptout, count, res);
 
-    SetLastError(ERROR_POINT_NOT_FOUND);
-    return -1;
+    TRACE("    ptin: %d %d\n", ptin->x, ptin->y);
+
+    if (res == GMMP_USE_HIGH_RESOLUTION_POINTS)
+    {
+        WARN("GMMP_USE_HIGH_RESOLUTION_POINTS not supported");
+        SetLastError(ERROR_POINT_NOT_FOUND);
+        return -1;
+    }
+
+    GetCursorPos(&pos);
+    
+    ptout[0].x = pos.x;
+    ptout[0].y = pos.y;
+    ptout[0].time = GetTickCount();
+    ptout[0].dwExtraInfo = 0;
+    TRACE("    ptout[0]: %d %d\n", pos.x, pos.y);
+    
+    if (count > 1) {
+        ptout[1].x = last_x;
+        ptout[1].y = last_y;
+        ptout[1].time = GetTickCount();
+        ptout[1].dwExtraInfo = 0;
+        TRACE("    ptout[1]: %d %d\n", last_x, last_y);
+    }
+    
+    last_x = pos.x;
+    last_y = pos.y;
+        
+    return count > 1 ? 2 : 1;
 }
 
 /***********************************************************************
@@ -1325,4 +1338,72 @@ BOOL WINAPI EnableMouseInPointer(BOOL enable)
 
     SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
     return FALSE;
+}
+
+static DWORD CALLBACK devnotify_window_callback(HANDLE handle, DWORD flags, DEV_BROADCAST_HDR *header)
+{
+    SendMessageTimeoutW(handle, WM_DEVICECHANGE, flags, (LPARAM)header, SMTO_ABORTIFHUNG, 2000, NULL);
+    return 0;
+}
+
+static DWORD CALLBACK devnotify_service_callback(HANDLE handle, DWORD flags, DEV_BROADCAST_HDR *header)
+{
+    FIXME("Support for service handles is not yet implemented!\n");
+    return 0;
+}
+
+struct device_notification_details
+{
+    DWORD (CALLBACK *cb)(HANDLE handle, DWORD flags, DEV_BROADCAST_HDR *header);
+    HANDLE handle;
+};
+
+extern HDEVNOTIFY WINAPI I_ScRegisterDeviceNotification( struct device_notification_details *details,
+        void *filter, DWORD flags );
+extern BOOL WINAPI I_ScUnregisterDeviceNotification( HDEVNOTIFY handle );
+
+/***********************************************************************
+ *		RegisterDeviceNotificationA (USER32.@)
+ *
+ * See RegisterDeviceNotificationW.
+ */
+HDEVNOTIFY WINAPI RegisterDeviceNotificationA(HANDLE hRecipient, LPVOID pNotificationFilter, DWORD dwFlags)
+{
+    TRACE("(hwnd=%p, filter=%p,flags=0x%08x)\n",
+        hRecipient,pNotificationFilter,dwFlags);
+    if (pNotificationFilter)
+        FIXME("The notification filter will requires an A->W when filter support is implemented\n");
+    return RegisterDeviceNotificationW(hRecipient, pNotificationFilter, dwFlags);
+}
+
+/***********************************************************************
+ *		RegisterDeviceNotificationW (USER32.@)
+ */
+HDEVNOTIFY WINAPI RegisterDeviceNotificationW( HANDLE handle, void *filter, DWORD flags )
+{
+    struct device_notification_details details;
+
+    TRACE("handle %p, filter %p, flags %#x\n", handle, filter, flags);
+
+    if (flags & ~(DEVICE_NOTIFY_SERVICE_HANDLE | DEVICE_NOTIFY_ALL_INTERFACE_CLASSES))
+        FIXME("unhandled flags %#x\n", flags);
+
+    details.handle = handle;
+
+    if (flags & DEVICE_NOTIFY_SERVICE_HANDLE)
+        details.cb = devnotify_service_callback;
+    else
+        details.cb = devnotify_window_callback;
+
+    return I_ScRegisterDeviceNotification( &details, filter, 0 );
+}
+
+/***********************************************************************
+ *		UnregisterDeviceNotification (USER32.@)
+ */
+BOOL WINAPI UnregisterDeviceNotification( HDEVNOTIFY handle )
+{
+    TRACE("%p\n", handle);
+
+    return I_ScUnregisterDeviceNotification( handle );
 }

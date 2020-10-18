@@ -18,18 +18,13 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-#include "wine/port.h"
-
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#ifdef HAVE_UNISTD_H
-# include <unistd.h>
-#endif
 
+#define WINE_NO_INLINE_STRING
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #define NONAMELESSUNION
@@ -44,8 +39,7 @@
 
 #include "kernel_private.h"
 
-WINE_DECLARE_DEBUG_CHANNEL(seh);
-WINE_DECLARE_DEBUG_CHANNEL(file);
+WINE_DEFAULT_DEBUG_CHANNEL(seh);
 
 
 static LONG WINAPI badptr_handler( EXCEPTION_POINTERS *eptr )
@@ -98,7 +92,7 @@ BOOL WINAPI IsBadReadPtr( LPCVOID ptr, UINT_PTR size )
     }
     __EXCEPT( badptr_handler )
     {
-        TRACE_(seh)("%p caused page fault during read\n", ptr);
+        TRACE("%p caused page fault during read\n", ptr);
         return TRUE;
     }
     __ENDTRY
@@ -139,7 +133,7 @@ BOOL WINAPI IsBadWritePtr( LPVOID ptr, UINT_PTR size )
     }
     __EXCEPT( badptr_handler )
     {
-        TRACE_(seh)("%p caused page fault during write\n", ptr);
+        TRACE("%p caused page fault during write\n", ptr);
         return TRUE;
     }
     __ENDTRY
@@ -227,7 +221,7 @@ BOOL WINAPI IsBadStringPtrA( LPCSTR str, UINT_PTR max )
     }
     __EXCEPT( badptr_handler )
     {
-        TRACE_(seh)("%p caused page fault during read\n", str);
+        TRACE("%p caused page fault during read\n", str);
         return TRUE;
     }
     __ENDTRY
@@ -251,136 +245,86 @@ BOOL WINAPI IsBadStringPtrW( LPCWSTR str, UINT_PTR max )
     }
     __EXCEPT( badptr_handler )
     {
-        TRACE_(seh)("%p caused page fault during read\n", str);
+        TRACE("%p caused page fault during read\n", str);
         return TRUE;
     }
     __ENDTRY
     return FALSE;
 }
-
 /***********************************************************************
- *           K32GetMappedFileNameW (KERNEL32.@)
+ *           lstrcatA   (KERNEL32.@)
+ *           lstrcat    (KERNEL32.@)
  */
-DWORD WINAPI K32GetMappedFileNameW(HANDLE process, LPVOID addr, LPWSTR file_name, DWORD size)
+LPSTR WINAPI lstrcatA( LPSTR dst, LPCSTR src )
 {
-    MEMORY_SECTION_NAME *name;
-    SIZE_T buf_len;
-    NTSTATUS status;
-
-    TRACE_(file)("(%p, %p, %p, %d)\n", process, addr, file_name, size);
-
-    if (!file_name || !size)
+    __TRY
     {
-        SetLastError(ERROR_INVALID_PARAMETER);
-        return 0;
+        strcat( dst, src );
     }
-
-    buf_len = sizeof(*name) + size * sizeof(WCHAR);
-    name = HeapAlloc(GetProcessHeap(), 0, buf_len);
-    if (!name)
+    __EXCEPT( badptr_handler )
     {
-        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
-        return 0;
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return NULL;
     }
-
-    status = NtQueryVirtualMemory(process, addr, MemorySectionName, name, buf_len, &buf_len);
-    if (status)
-    {
-        HeapFree(GetProcessHeap(), 0, name);
-        SetLastError(RtlNtStatusToDosError(status));
-        return 0;
-    }
-
-    memcpy(file_name, name->SectionFileName.Buffer, name->SectionFileName.MaximumLength);
-    buf_len = name->SectionFileName.Length;
-
-    HeapFree(GetProcessHeap(), 0, name);
-
-    return buf_len;
+    __ENDTRY
+    return dst;
 }
 
+
 /***********************************************************************
- *           K32GetMappedFileNameA (KERNEL32.@)
+ *           lstrcatW   (KERNEL32.@)
  */
-DWORD WINAPI K32GetMappedFileNameA(HANDLE process, LPVOID addr, LPSTR file_name, DWORD size)
+LPWSTR WINAPI lstrcatW( LPWSTR dst, LPCWSTR src )
 {
-    WCHAR file_nameW[MAX_PATH];
-    DWORD ret;
-
-    TRACE_(file)("(%p, %p, %p, %d)\n", process, addr, file_name, size);
-
-    if (!file_name || !size)
+    __TRY
     {
-        SetLastError(ERROR_INVALID_PARAMETER);
-        return 0;
+        wcscat( dst, src );
     }
-
-    ret = K32GetMappedFileNameW(process, addr, file_nameW, MAX_PATH);
-    if (ret)
+    __EXCEPT( badptr_handler )
     {
-        ret = FILE_name_WtoA(file_nameW, -1, file_name, size);
-        if (ret > 1)
-            ret--; /* don't account for terminating NUL */
-        else
-            file_name[0] = 0;
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return NULL;
     }
-    return ret;
+    __ENDTRY
+    return dst;
 }
 
-/***********************************************************************
- *           K32EnumPageFilesA (KERNEL32.@)
- */
-BOOL WINAPI K32EnumPageFilesA( PENUM_PAGE_FILE_CALLBACKA callback, LPVOID context )
-{
-    FIXME_(file)("(%p, %p) stub\n", callback, context );
-    return FALSE;
-}
 
 /***********************************************************************
- *           K32EnumPageFilesW (KERNEL32.@)
+ *           lstrcpyA   (KERNEL32.@)
+ *           lstrcpy    (KERNEL32.@)
  */
-BOOL WINAPI K32EnumPageFilesW( PENUM_PAGE_FILE_CALLBACKW callback, LPVOID context )
+LPSTR WINAPI lstrcpyA( LPSTR dst, LPCSTR src )
 {
-    FIXME_(file)("(%p, %p) stub\n", callback, context );
-    return FALSE;
-}
-
-/***********************************************************************
- *           K32GetWsChanges (KERNEL32.@)
- */
-BOOL WINAPI K32GetWsChanges(HANDLE process, PPSAPI_WS_WATCH_INFORMATION watchinfo, DWORD size)
-{
-    NTSTATUS status;
-
-    TRACE_(seh)("(%p, %p, %d)\n", process, watchinfo, size);
-
-    status = NtQueryInformationProcess( process, ProcessWorkingSetWatch, watchinfo, size, NULL );
-
-    if (status)
+    __TRY
     {
-        SetLastError( RtlNtStatusToDosError( status ) );
-        return FALSE;
+        /* this is how Windows does it */
+        memmove( dst, src, strlen(src)+1 );
     }
-    return TRUE;
+    __EXCEPT( badptr_handler )
+    {
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return NULL;
+    }
+    __ENDTRY
+    return dst;
 }
 
-/***********************************************************************
- *           K32GetWsChangesEx (KERNEL32.@)
- */
-BOOL WINAPI K32GetWsChangesEx(HANDLE process, PSAPI_WS_WATCH_INFORMATION_EX *watchinfoex, DWORD *size)
-{
-    FIXME_(seh)("(%p, %p, %p)\n", process, watchinfoex, size);
-
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return FALSE;
-}
 
 /***********************************************************************
- *           K32InitializeProcessForWsWatch (KERNEL32.@)
+ *           lstrcpyW   (KERNEL32.@)
  */
-BOOL WINAPI K32InitializeProcessForWsWatch(HANDLE process)
+LPWSTR WINAPI lstrcpyW( LPWSTR dst, LPCWSTR src )
 {
-    FIXME_(seh)("(process=%p): stub\n", process);
-
-    return TRUE;
+    __TRY
+    {
+        wcscpy( dst, src );
+    }
+    __EXCEPT( badptr_handler )
+    {
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return NULL;
+    }
+    __ENDTRY
+    return dst;
 }

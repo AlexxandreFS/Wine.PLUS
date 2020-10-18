@@ -26,9 +26,9 @@
 #include <assert.h>
 
 #include "windows.h"
-
 #include "msxml2.h"
-#include "msxml2did.h"
+#include "msxml6.h"
+#include "msxml6did.h"
 #include "dispex.h"
 
 #include "initguid.h"
@@ -128,21 +128,6 @@ static void free_bstrs(void)
     for (i = 0; i < alloced_bstrs_count; i++)
         SysFreeString(alloced_bstrs[i]);
     alloced_bstrs_count = 0;
-}
-
-static BSTR a2bstr(const char *str)
-{
-    BSTR ret;
-    int len;
-
-    if(!str)
-        return NULL;
-
-    len = MultiByteToWideChar(CP_ACP, 0, str, -1, NULL, 0);
-    ret = SysAllocStringLen(NULL, len);
-    MultiByteToWideChar(CP_ACP, 0, str, -1, ret, len);
-
-    return ret;
 }
 
 
@@ -250,7 +235,6 @@ static IHTMLElementCollection htmlecoll = { &TestHTMLECollectionVtbl };
 /* test IHTMLDocument2 */
 static HRESULT WINAPI htmldoc2_QueryInterface(IHTMLDocument2 *iface, REFIID riid, void **ppvObject)
 {
-   trace("\n");
    *ppvObject = NULL;
    return E_NOINTERFACE;
 }
@@ -496,7 +480,7 @@ static HRESULT WINAPI htmldoc2_put_URL(IHTMLDocument2 *iface, BSTR v)
 static HRESULT WINAPI htmldoc2_get_URL(IHTMLDocument2 *iface, BSTR *p)
 {
     CHECK_EXPECT2(htmldoc2_get_url);
-    *p = a2bstr("http://test.winehq.org/");
+    *p = SysAllocString(L"http://test.winehq.org/");
     return S_OK;
 }
 
@@ -1311,7 +1295,6 @@ static HRESULT WINAPI dispevent_Invoke(IDispatch *iface, DISPID member, REFIID r
 
         hr = IXMLHttpRequest_get_responseText(httpreq, &text);
         ok(hr == S_OK, "got 0x%08x\n", hr);
-        ok(*text != 0, "got %s\n", wine_dbgstr_w(text));
         SysFreeString(text);
     }
 
@@ -1346,6 +1329,17 @@ static IXMLHttpRequest *create_xhr(void)
 
     hr = CoCreateInstance(&CLSID_XMLHTTPRequest, NULL, CLSCTX_INPROC_SERVER,
         &IID_IXMLHttpRequest, (void**)&ret);
+
+    return SUCCEEDED(hr) ? ret : NULL;
+}
+
+static IXMLHTTPRequest2 *create_xhr2(void)
+{
+    IXMLHTTPRequest2 *ret;
+    HRESULT hr;
+
+    hr = CoCreateInstance(&CLSID_FreeThreadedXMLHTTP60, NULL, CLSCTX_INPROC_SERVER,
+        &IID_IXMLHTTPRequest2, (void**)&ret);
 
     return SUCCEEDED(hr) ? ret : NULL;
 }
@@ -1460,8 +1454,6 @@ static void test_XMLHTTP(void)
     static const char bodyA[] = "mode=Test";
     static const char urlA[] = "http://test.winehq.org/tests/post.php";
     static const char referertesturl[] = "http://test.winehq.org/tests/referer.php";
-    static const WCHAR wszExpectedResponse[] = {'F','A','I','L','E','D',0};
-    static const WCHAR norefererW[] = {'n','o',' ','r','e','f','e','r','e','r',' ','s','e','t',0};
 
     IXMLHttpRequest *xhr;
     IObjectWithSite *obj_site, *obj_site2;
@@ -1603,7 +1595,7 @@ static void test_XMLHTTP(void)
     hr = IXMLHttpRequest_getAllResponseHeaders(xhr, &str);
     EXPECT_HR(hr, S_OK);
     /* status line is stripped already */
-    ok(memcmp(str, _bstr_("HTTP"), 4*sizeof(WCHAR)), "got response headers %s\n", wine_dbgstr_w(str));
+    ok(memcmp(str, L"HTTP", 4*sizeof(WCHAR)), "got response headers %s\n", wine_dbgstr_w(str));
     ok(*str, "got empty headers\n");
     hr = IXMLHttpRequest_getAllResponseHeaders(xhr, &str1);
     EXPECT_HR(hr, S_OK);
@@ -1631,7 +1623,7 @@ static void test_XMLHTTP(void)
 
     hr = IXMLHttpRequest_get_statusText(xhr, &str);
     EXPECT_HR(hr, S_OK);
-    ok(!lstrcmpW(str, _bstr_("OK")), "got status %s\n", wine_dbgstr_w(str));
+    ok(!lstrcmpW(str, L"OK"), "got status %s\n", wine_dbgstr_w(str));
     SysFreeString(str);
 
     /* another ::send() after completed request */
@@ -1647,8 +1639,7 @@ static void test_XMLHTTP(void)
      * not what the server expects */
     if(hr == S_OK)
     {
-        ok(!memcmp(bstrResponse, wszExpectedResponse, sizeof(wszExpectedResponse)),
-            "expected %s, got %s\n", wine_dbgstr_w(wszExpectedResponse), wine_dbgstr_w(bstrResponse));
+        ok(!memcmp(bstrResponse, L"FAILED", 7 * sizeof(WCHAR)), "Unexpected response %s.\n", wine_dbgstr_w(bstrResponse));
         SysFreeString(bstrResponse);
     }
 
@@ -1729,7 +1720,7 @@ static void test_XMLHTTP(void)
     ok(hr == S_OK, "got 0x%08x\n", hr);
     hr = IXMLHttpRequest_get_responseText(xhr, &str);
     ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(!lstrcmpW(str, norefererW), "got response text %s\n", wine_dbgstr_w(str));
+    ok(!lstrcmpW(str, L"no referer set"), "got response text %s\n", wine_dbgstr_w(str));
     SysFreeString(str);
 
     /* interaction with object site */
@@ -1747,7 +1738,7 @@ static void test_XMLHTTP(void)
     set_xhr_site(xhr);
 
     test_open(xhr, "GET", "tests/referer.php", S_OK);
-    str1 = a2bstr("http://test.winehq.org/");
+    str1 = SysAllocString(L"http://test.winehq.org/");
 
     V_VT(&varbody) = VT_EMPTY;
     hr = IXMLHttpRequest_send(xhr, varbody);
@@ -1817,7 +1808,7 @@ static void test_server_xhr(void)
     V_VT(&body) = VT_EMPTY;
 
     hr = IServerXMLHTTPRequest_send(xhr, body);
-    if (hr == INET_E_RESOURCE_NOT_FOUND)
+    if (hr == INET_E_RESOURCE_NOT_FOUND || hr == WININET_E_NAME_NOT_RESOLVED)
     {
         skip("No connection could be made with test.winehq.org\n");
         IServerXMLHTTPRequest_Release(xhr);
@@ -1909,11 +1900,388 @@ static void test_supporterrorinfo(void)
     IServerXMLHTTPRequest_Release(server_xhr);
 }
 
+struct xhr3_callback
+{
+    IXMLHTTPRequest3Callback IXMLHTTPRequest3Callback_iface;
+    LONG ref;
+    HANDLE event;
+};
+
+static inline struct xhr3_callback *xhr3_callback_from_IXMLHTTPRequest3Callback(IXMLHTTPRequest3Callback *iface)
+{
+    return CONTAINING_RECORD(iface, struct xhr3_callback, IXMLHTTPRequest3Callback_iface);
+}
+
+static HRESULT WINAPI xhr3_callback_QueryInterface(IXMLHTTPRequest3Callback *iface, REFIID riid, void **obj)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    trace("(%p)->(%s %p)\n", This, debugstr_guid(riid), obj);
+
+    if (IsEqualGUID(riid, &IID_IXMLHTTPRequest3Callback) || IsEqualGUID(riid, &IID_IXMLHTTPRequest2Callback) || IsEqualGUID(riid, &IID_IUnknown))
+    {
+        IXMLHTTPRequest3Callback_AddRef(iface);
+        *obj = iface;
+        return S_OK;
+    }
+
+    ok(0, "unexpected interface %s\n", debugstr_guid(riid));
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI xhr3_callback_AddRef(IXMLHTTPRequest3Callback *iface)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    ULONG ref = InterlockedIncrement(&This->ref);
+    trace("(%p)->(%u)\n", This, ref);
+    return ref;
+}
+
+static ULONG WINAPI xhr3_callback_Release(IXMLHTTPRequest3Callback *iface)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    ULONG ref = InterlockedDecrement(&This->ref);
+    trace("(%p)->(%u)\n", This, ref);
+    if (ref == 0) HeapFree(GetProcessHeap(), 0, This);
+    return ref;
+}
+
+static HRESULT WINAPI xhr3_callback_OnRedirect(IXMLHTTPRequest3Callback *iface,
+        IXMLHTTPRequest2 *request, const WCHAR* redirect_url)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    trace("(%p)->(%p %s)\n", This, request, debugstr_w(redirect_url));
+    return S_OK;
+}
+
+static HRESULT WINAPI xhr3_callback_OnHeadersAvailable(IXMLHTTPRequest3Callback *iface,
+        IXMLHTTPRequest2 *request, DWORD status, const WCHAR *status_str)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    WCHAR *header = NULL;
+    HRESULT hr;
+
+    trace("(%p)->(%p %d %s)\n", This, request, status, debugstr_w(status_str));
+
+    header = (void *)0xdeadbeef;
+    hr = IXMLHTTPRequest2_GetResponseHeader(request, L"Content-Length", &header);
+    trace("Content-Length: %p (%s), hr %#x\n", header, debugstr_w(header), hr);
+
+    return S_OK;
+}
+
+static HRESULT WINAPI xhr3_callback_OnDataAvailable(IXMLHTTPRequest3Callback *iface,
+        IXMLHTTPRequest2 *request, ISequentialStream *response)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    trace("(%p)->(%p %p)\n", This, request, response);
+    return S_OK;
+}
+
+static HRESULT WINAPI xhr3_callback_OnResponseReceived(IXMLHTTPRequest3Callback *iface,
+        IXMLHTTPRequest2 *request, ISequentialStream *response)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    WCHAR *header = NULL;
+    char *buffer = HeapAlloc( GetProcessHeap(), 0, 256 );
+    ULONG read_size = 0;
+    HRESULT hr;
+
+    memset(buffer, '?', 256);
+    buffer[255] = 0;
+
+    trace("(%p)->(%p %p)\n", This, request, response);
+
+    header = (void *)0xdeadbeef;
+    hr = IXMLHTTPRequest2_GetResponseHeader(request, L"Cache-Control", &header);
+    trace("Cache-Control: %p (%s), hr %#x\n", header, debugstr_w(header), hr);
+
+    header = (void *)0xdeadbeef;
+    hr = IXMLHTTPRequest2_GetResponseHeader(request, L"Expires", &header);
+    trace("Expires: %p (%s), hr %#x\n", header, debugstr_w(header), hr);
+
+    header = (void *)0xdeadbeef;
+    hr = IXMLHTTPRequest2_GetResponseHeader(request, L"Content-Type", &header);
+    trace("Content-Type: %p (%s), hr %#x\n", header, debugstr_w(header), hr);
+
+    read_size = 0xdeadbeef;
+    hr = ISequentialStream_Read(response, buffer, 214, &read_size);
+    trace("Response: (%d) %s, hr %#x\n", read_size, debugstr_a(buffer), hr);
+
+    read_size = 0xdeadbeef;
+    hr = ISequentialStream_Read(response, buffer, 1, &read_size);
+    trace("Response: (%d) %s, hr %#x\n", read_size, debugstr_a(buffer), hr);
+
+    HeapFree( GetProcessHeap(), 0, buffer );
+    SetEvent(This->event);
+
+    return S_OK;
+}
+
+static HRESULT WINAPI xhr3_callback_OnError(IXMLHTTPRequest3Callback *iface,
+        IXMLHTTPRequest2 *request, HRESULT error)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    trace("(%p)->(%p %#x)\n", This, request, error);
+    SetEvent(This->event);
+    return S_OK;
+}
+
+static HRESULT WINAPI xhr3_callback_OnServerCertificateReceived(IXMLHTTPRequest3Callback *iface,
+        IXMLHTTPRequest3 *request, DWORD errors, DWORD chain_size, const XHR_CERT *chain)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    trace("(%p)->(%p %u %u %p)\n", This, request, errors, chain_size, chain);
+    return S_OK;
+}
+
+static HRESULT WINAPI xhr3_callback_OnClientCertificateRequested(IXMLHTTPRequest3Callback *iface,
+        IXMLHTTPRequest3 *request, DWORD issuers_size, const WCHAR **issuers)
+{
+    struct xhr3_callback *This = xhr3_callback_from_IXMLHTTPRequest3Callback(iface);
+    trace("(%p)->(%p %u %p)\n", This, request, issuers_size, issuers);
+    return S_OK;
+}
+
+static const IXMLHTTPRequest3CallbackVtbl xhr3_callback_vtbl =
+{
+    xhr3_callback_QueryInterface,
+    xhr3_callback_AddRef,
+    xhr3_callback_Release,
+    /* IXMLHTTPRequest2Callback methods */
+    xhr3_callback_OnRedirect,
+    xhr3_callback_OnHeadersAvailable,
+    xhr3_callback_OnDataAvailable,
+    xhr3_callback_OnResponseReceived,
+    xhr3_callback_OnError,
+    /* IXMLHTTPRequest3Callback methods */
+    xhr3_callback_OnServerCertificateReceived,
+    xhr3_callback_OnClientCertificateRequested,
+};
+
+static IXMLHTTPRequest2Callback* xhr3_callback_create(HANDLE event)
+{
+    struct xhr3_callback *This = HeapAlloc(GetProcessHeap(), 0, sizeof(*This));
+    ok(This != NULL, "failed to allocate object\n");
+    if (!This) return NULL;
+
+    This->IXMLHTTPRequest3Callback_iface.lpVtbl = &xhr3_callback_vtbl;
+    This->ref = 1;
+    This->event = event;
+
+    return (IXMLHTTPRequest2Callback*)&This->IXMLHTTPRequest3Callback_iface;
+}
+
+struct xhr2_stream
+{
+    IStream IStream_iface;
+    LONG ref;
+    IStream *stream;
+};
+
+static inline struct xhr2_stream *xhr2_stream_from_IStream(IStream *iface)
+{
+    return CONTAINING_RECORD(iface, struct xhr2_stream, IStream_iface);
+}
+
+static HRESULT WINAPI xhr2_stream_QueryInterface(IStream *iface, REFIID riid, void **obj)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%s %p)\n", This, debugstr_guid(riid), obj);
+
+    if (IsEqualGUID(riid, &IID_IStream) || IsEqualGUID(riid, &IID_ISequentialStream) || IsEqualGUID(riid, &IID_IUnknown))
+    {
+        IStream_AddRef(iface);
+        *obj = iface;
+        return S_OK;
+    }
+
+    ok(0, "unexpected interface %s\n", debugstr_guid(riid));
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI xhr2_stream_AddRef(IStream *iface)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    ULONG ref = InterlockedIncrement(&This->ref);
+    trace("(%p)->(%u)\n", This, ref);
+    return ref;
+}
+
+static ULONG WINAPI xhr2_stream_Release(IStream *iface)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    ULONG ref = InterlockedDecrement(&This->ref);
+    trace("(%p)->(%u)\n", This, ref);
+    if (ref == 0)
+    {
+        IStream_Release(This->stream);
+        HeapFree(GetProcessHeap(), 0, This);
+    }
+    return ref;
+}
+
+static HRESULT WINAPI xhr2_stream_Read(IStream *iface, void *pv, ULONG cb,
+        ULONG *pcbRead)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%p %u %p)\n", This, pv, cb, pcbRead);
+    return IStream_Read(This->stream, pv, cb, pcbRead);
+}
+
+static HRESULT WINAPI xhr2_stream_Write(IStream *iface, const void *pv,
+        ULONG cb, ULONG *pcbWritten)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%p %u %p)\n", This, pv, cb, pcbWritten);
+    return IStream_Write(This->stream, pv, cb, pcbWritten);
+}
+
+static HRESULT WINAPI xhr2_stream_Seek(IStream *iface, LARGE_INTEGER dlibMove,
+        DWORD dwOrigin, ULARGE_INTEGER *plibNewPosition)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%lu, %u %p)\n", This, dlibMove.QuadPart, dwOrigin, plibNewPosition);
+    return IStream_Seek(This->stream, dlibMove, dwOrigin, plibNewPosition);
+}
+
+static HRESULT WINAPI xhr2_stream_SetSize(IStream *iface, ULARGE_INTEGER libNewSize)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%lu)\n", This, libNewSize.QuadPart);
+    return IStream_SetSize(This->stream, libNewSize);
+}
+
+static HRESULT WINAPI xhr2_stream_CopyTo(IStream *iface, IStream *pstm,
+        ULARGE_INTEGER cb, ULARGE_INTEGER *pcbRead, ULARGE_INTEGER *pcbWritten)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%p %lu %p %p)\n", This, pstm, cb.QuadPart, pcbRead, pcbWritten);
+    return IStream_CopyTo(This->stream, pstm, cb, pcbRead, pcbWritten);
+}
+
+static HRESULT WINAPI xhr2_stream_Commit(IStream *iface, DWORD grfCommitFlags)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%#x)\n", This, grfCommitFlags);
+    return IStream_Commit(This->stream, grfCommitFlags);
+}
+
+static HRESULT WINAPI xhr2_stream_Revert(IStream *iface)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->()\n", This);
+    return IStream_Revert(This->stream);
+}
+
+static HRESULT WINAPI xhr2_stream_LockRegion(IStream *iface, ULARGE_INTEGER libOffset,
+        ULARGE_INTEGER cb, DWORD dwLockType)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%lu %lu %u)\n", This, libOffset.QuadPart, cb.QuadPart, dwLockType);
+    return IStream_LockRegion(This->stream, libOffset, cb, dwLockType);
+}
+
+static HRESULT WINAPI xhr2_stream_UnlockRegion(IStream *iface, ULARGE_INTEGER libOffset,
+        ULARGE_INTEGER cb, DWORD dwLockType)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%lu %lu %u)\n", This, libOffset.QuadPart, cb.QuadPart, dwLockType);
+    return IStream_UnlockRegion(This->stream, libOffset, cb, dwLockType);
+}
+
+static HRESULT WINAPI xhr2_stream_Stat(IStream *iface, STATSTG *pstatstg, DWORD grfStatFlag)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%p %#x)\n", This, pstatstg, grfStatFlag);
+    return IStream_Stat(This->stream, pstatstg, grfStatFlag);
+}
+
+static HRESULT WINAPI xhr2_stream_Clone(IStream *iface, IStream **ppstm)
+{
+    struct xhr2_stream *This = xhr2_stream_from_IStream(iface);
+    trace("(%p)->(%p)\n", This, ppstm);
+    return IStream_Clone(This->stream, ppstm);
+}
+
+static const IStreamVtbl xhr2_stream_vtbl =
+{
+    xhr2_stream_QueryInterface,
+    xhr2_stream_AddRef,
+    xhr2_stream_Release,
+    /* IStream methods */
+    xhr2_stream_Read,
+    xhr2_stream_Write,
+    xhr2_stream_Seek,
+    xhr2_stream_SetSize,
+    xhr2_stream_CopyTo,
+    xhr2_stream_Commit,
+    xhr2_stream_Revert,
+    xhr2_stream_LockRegion,
+    xhr2_stream_UnlockRegion,
+    xhr2_stream_Stat,
+    xhr2_stream_Clone
+};
+
+static ISequentialStream *xhr2_stream_create(void)
+{
+    struct xhr2_stream *This = HeapAlloc(GetProcessHeap(), 0, sizeof(*This));
+    ok(This != NULL, "failed to allocate object\n");
+    if (!This) return NULL;
+
+    This->IStream_iface.lpVtbl = &xhr2_stream_vtbl;
+    This->ref = 1;
+    CreateStreamOnHGlobal(NULL, TRUE, &This->stream);
+
+    return (ISequentialStream*)&This->IStream_iface;
+}
+
+static void test_IXMLHTTPRequest2(void)
+{
+    IXMLHTTPRequest2 *xhr2[16];
+    IXMLHTTPRequest2Callback *xhr3_callback;
+    ISequentialStream *stream;
+    HANDLE events[16];
+    HRESULT hr;
+    int i = 0;
+
+    if (!(xhr2[i] = create_xhr2()))
+    {
+        win_skip("IXMLHTTPRequest2 is not available\n");
+        return;
+    }
+
+    events[i] = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!(xhr3_callback = xhr3_callback_create(events[i])))
+        return;
+
+    trace("IXMLHTTPRequest2_Open (%p)->(L\"GET\", L\"http://test.winehq.org/\", xhr3_callback, NULL, NULL, NULL, NULL)\n", GetCurrentThreadId(), xhr2[i]);
+    hr = IXMLHTTPRequest2_Open(xhr2[i], L"GET", L"http://test.winehq.org/", xhr3_callback, NULL, NULL, NULL, NULL);
+    ok(SUCCEEDED(hr), "IXMLHTTPRequest2_Send failed %#x\n", hr);
+
+    if ((stream = xhr2_stream_create()))
+    {
+        trace("IXMLHTTPRequest2_Send (%p)->(%p 0)\n", GetCurrentThreadId(), xhr2[i], stream);
+        hr = IXMLHTTPRequest2_Send(xhr2[i], stream, 0);
+        ok(SUCCEEDED(hr), "IXMLHTTPRequest2_Send failed %#x\n", hr);
+
+        ISequentialStream_Release(stream);
+    }
+
+    IXMLHTTPRequest2Callback_Release(xhr3_callback);
+    i++;
+
+    while (i--)
+    {
+        WaitForSingleObject(events[i], INFINITE);
+        IXMLHTTPRequest2_Release(xhr2[i]);
+    }
+}
+
 START_TEST(httpreq)
 {
     IXMLHttpRequest *xhr;
 
-    CoInitialize(NULL);
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
     if (!(xhr = create_xhr()))
     {
@@ -1928,6 +2296,7 @@ START_TEST(httpreq)
     test_server_xhr();
     test_safe_httpreq();
     test_supporterrorinfo();
+    test_IXMLHTTPRequest2();
 
     CoUninitialize();
 }

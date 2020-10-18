@@ -43,6 +43,7 @@ struct recordset
     LONG               allocated;
     LONG               index;
     VARIANT           *data;
+    CursorLocationEnum cursor_location;
 };
 
 struct fields
@@ -747,7 +748,10 @@ static ULONG WINAPI recordset_AddRef( _Recordset *iface )
 
 static void close_recordset( struct recordset *recordset )
 {
-    ULONG row, col, col_count = get_column_count( recordset );
+    ULONG row, col, col_count;
+
+    if (!recordset->fields) return;
+    col_count = get_column_count( recordset );
 
     recordset->fields->recordset = NULL;
     Fields_Release( &recordset->fields->Fields_iface );
@@ -780,6 +784,8 @@ static HRESULT WINAPI recordset_QueryInterface( _Recordset *iface, REFIID riid, 
     struct recordset *recordset = impl_from_Recordset( iface );
     TRACE( "%p, %s, %p\n", iface, debugstr_guid(riid), obj );
 
+    *obj = NULL;
+
     if (IsEqualIID(riid, &IID_IUnknown)    || IsEqualIID(riid, &IID_IDispatch)   ||
         IsEqualIID(riid, &IID__ADO)        || IsEqualIID(riid, &IID_Recordset15) ||
         IsEqualIID(riid, &IID_Recordset20) || IsEqualIID(riid, &IID_Recordset21) ||
@@ -790,6 +796,11 @@ static HRESULT WINAPI recordset_QueryInterface( _Recordset *iface, REFIID riid, 
     else if (IsEqualGUID( riid, &IID_ISupportErrorInfo ))
     {
         *obj = &recordset->ISupportErrorInfo_iface;
+    }
+    else if (IsEqualGUID( riid, &IID_IRunnableObject ))
+    {
+        TRACE("IID_IRunnableObject not supported returning NULL\n");
+        return E_NOINTERFACE;
     }
     else
     {
@@ -1229,14 +1240,24 @@ static HRESULT WINAPI recordset_CancelBatch( _Recordset *iface, AffectEnum affec
 
 static HRESULT WINAPI recordset_get_CursorLocation( _Recordset *iface, CursorLocationEnum *cursor_loc )
 {
-    FIXME( "%p, %p\n", iface, cursor_loc );
-    return E_NOTIMPL;
+    struct recordset *recordset = impl_from_Recordset( iface );
+
+    TRACE( "%p, %p\n", iface, cursor_loc );
+
+    *cursor_loc = recordset->cursor_location;
+
+    return S_OK;
 }
 
 static HRESULT WINAPI recordset_put_CursorLocation( _Recordset *iface, CursorLocationEnum cursor_loc )
 {
-    FIXME( "%p, %u\n", iface, cursor_loc );
-    return E_NOTIMPL;
+    struct recordset *recordset = impl_from_Recordset( iface );
+
+    TRACE( "%p, %u\n", iface, cursor_loc );
+
+    recordset->cursor_location = cursor_loc;
+
+    return S_OK;
 }
 
 static HRESULT WINAPI recordset_NextRecordset( _Recordset *iface, VARIANT *records_affected, _Recordset **record_set )
@@ -1524,6 +1545,7 @@ HRESULT Recordset_create( void **obj )
     recordset->ISupportErrorInfo_iface.lpVtbl = &recordset_supporterrorinfo_vtbl;
     recordset->refs = 1;
     recordset->index = -1;
+    recordset->cursor_location = adUseServer;
 
     *obj = &recordset->Recordset_iface;
     TRACE( "returning iface %p\n", *obj );

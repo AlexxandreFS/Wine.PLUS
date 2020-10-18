@@ -148,7 +148,7 @@ static void appeared_callback( DADiskRef disk, void *context )
     if ((ref = CFDictionaryGetValue( dict, CFSTR("DAMediaRemovable") )) && CFBooleanGetValue( ref ))
         add_dos_device( -1, device, device, mount_point, type, guid_ptr, &devname );
     else
-        if (guid_ptr) add_volume( device, device, mount_point, DEVICE_HARDDISK_VOL, guid_ptr );
+        if (guid_ptr) add_volume( device, device, mount_point, DEVICE_HARDDISK_VOL, guid_ptr, NULL );
 
     if ((fd = open( device, O_RDONLY )) >= 0)
     {
@@ -298,7 +298,7 @@ static CFStringRef find_service_id( const WCHAR *adapter )
 
         service = CFArrayGetValueAtIndex( services, i );
         name = SCNetworkInterfaceGetBSDName( SCNetworkServiceGetInterface(service) );
-        if (CFStringGetLength( name ) < ARRAY_SIZE( buf ))
+        if (name && CFStringGetLength( name ) < ARRAY_SIZE( buf ))
         {
             CFStringGetCharacters( name, CFRangeMake(0, CFStringGetLength(name)), buf );
             if (!lstrcmpW( buf, unix_name ) && (id = SCNetworkServiceGetServiceID( service )))

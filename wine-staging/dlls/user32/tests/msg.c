@@ -20,9 +20,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define _WIN32_WINNT 0x0600 /* For WM_CHANGEUISTATE,QS_RAWINPUT,WM_DWMxxxx */
-#define WINVER 0x0600 /* for WM_GETTITLEBARINFOEX */
-
 #include <assert.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -34,6 +31,7 @@
 #include "winuser.h"
 #include "winnls.h"
 #include "dbt.h"
+#include "commctrl.h"
 
 #include "wine/test.h"
 
@@ -73,13 +71,6 @@
 #else
 #define ARCH "none"
 #endif
-
-static BOOL   (WINAPI *pActivateActCtx)(HANDLE,ULONG_PTR*);
-static HANDLE (WINAPI *pCreateActCtxW)(PCACTCTXW);
-static BOOL   (WINAPI *pDeactivateActCtx)(DWORD,ULONG_PTR);
-static BOOL   (WINAPI *pGetCurrentActCtx)(HANDLE *);
-static BOOL   (WINAPI *pQueryActCtxW)(DWORD,HANDLE,void*,ULONG,void*,SIZE_T,SIZE_T*);
-static void   (WINAPI *pReleaseActCtx)(HANDLE);
 
 /* encoded DRAWITEMSTRUCT into an LPARAM */
 typedef struct
@@ -2069,6 +2060,41 @@ static const struct message WmSHOWNATopInvisible[] = {
     { EVENT_OBJECT_LOCATIONCHANGE, winevent_hook|wparam|lparam, 0, 0 },
     { WM_SIZE, sent|wparam, SIZE_RESTORED },
     { WM_MOVE, sent },
+    { 0 }
+};
+
+static const struct message WmTrackPopupMenuMinimizeWindow[] = {
+    { HCBT_CREATEWND, hook },
+    { WM_ENTERMENULOOP, sent|wparam|lparam, TRUE, 0 },
+    { WM_INITMENU, sent|lparam, 0, 0 },
+    { WM_INITMENUPOPUP, sent|lparam, 0, 0 },
+    { 0x0093, sent|optional },
+    { 0x0094, sent|optional },
+    { 0x0094, sent|optional },
+    { WM_ENTERIDLE, sent|wparam, 2 },
+    { HCBT_MINMAX, hook },
+    { HCBT_SETFOCUS, hook },
+    { WM_KILLFOCUS, sent|wparam, 0 },
+    { WM_GETTEXT, sent|optional },
+    { WM_WINDOWPOSCHANGING, sent },
+    { WM_GETMINMAXINFO, sent|defwinproc },
+    { WM_NCCALCSIZE, sent|wparam|optional, 1 },
+    { WM_WINDOWPOSCHANGED, sent },
+    { WM_MOVE, sent|defwinproc },
+    { WM_SIZE, sent|defwinproc },
+    { WM_GETTEXT, sent|optional },
+    { WM_NCCALCSIZE, sent|wparam|optional, 1 },
+    { WM_CANCELMODE, sent },
+    { WM_CAPTURECHANGED, sent|defwinproc },
+    { HCBT_DESTROYWND, hook },
+    { WM_UNINITMENUPOPUP, sent|defwinproc|lparam, 0, 0 },
+    { WM_MENUSELECT, sent|defwinproc|wparam|lparam, 0xffff0000, 0 },
+    { WM_EXITMENULOOP, sent|defwinproc|wparam|lparam, 1, 0 },
+    { WM_NCACTIVATE, sent },
+    { WM_GETTEXT, sent|defwinproc|optional },
+    { WM_GETTEXT, sent|defwinproc|optional },
+    { WM_ACTIVATE, sent },
+    { WM_ACTIVATEAPP, sent|wparam, 0 },
     { 0 }
 };
 
@@ -5293,7 +5319,7 @@ static void test_WM_DEVICECHANGE(HWND hwnd)
     }
 }
 
-static DWORD CALLBACK show_window_thread(LPVOID arg)
+static DWORD CALLBACK hide_window_thread( LPVOID arg )
 {
    HWND hwnd = arg;
 
@@ -5301,6 +5327,16 @@ static DWORD CALLBACK show_window_thread(LPVOID arg)
    ok(ShowWindow(hwnd, SW_HIDE) == FALSE, "ShowWindow(SW_HIDE) expected FALSE\n");
 
    return 0;
+}
+
+static DWORD CALLBACK show_window_thread( LPVOID arg )
+{
+    HWND hwnd = arg;
+
+    /* function will not return if ShowWindow(SW_SHOW) calls SendMessage() */
+    ok( ShowWindow( hwnd, SW_SHOW ), "ShowWindow(SW_SHOW) expected TRUE\n" ); /* actually it's 24... */
+
+    return 0;
 }
 
 /* Helper function to easier test SetWindowPos messages */
@@ -5364,7 +5400,7 @@ static void test_messages(void)
     ok_sequence(WmEmptySeq, "ShowWindow(SW_HIDE):overlapped", FALSE);
 
     /* test ShowWindow(SW_HIDE) on a hidden window -  multi-threaded */
-    hthread = CreateThread(NULL, 0, show_window_thread, hwnd, 0, &tid);
+    hthread = CreateThread( NULL, 0, hide_window_thread, hwnd, 0, &tid );
     ok(hthread != NULL, "CreateThread failed, error %d\n", GetLastError());
     ok(WaitForSingleObject(hthread, INFINITE) == WAIT_OBJECT_0, "WaitForSingleObject failed\n");
     CloseHandle(hthread);
@@ -5374,6 +5410,14 @@ static void test_messages(void)
     ShowWindow(hwnd, SW_SHOW);
     flush_events();
     ok_sequence(WmShowOverlappedSeq, "ShowWindow(SW_SHOW):overlapped", TRUE);
+
+    /* test ShowWindow(SW_SHOW) on a visible window -  multi-threaded */
+    hthread = CreateThread( NULL, 0, show_window_thread, hwnd, 0, &tid );
+    ok( hthread != NULL, "CreateThread failed, error %d\n", GetLastError() );
+    ok( WaitForSingleObject( hthread, INFINITE ) == WAIT_OBJECT_0, "WaitForSingleObject failed\n" );
+    CloseHandle( hthread );
+    flush_events();
+    ok_sequence( WmEmptySeq, "ShowWindow(SW_SHOW):overlapped", FALSE );
 
     ShowWindow(hwnd, SW_HIDE);
     flush_events();
@@ -8895,7 +8939,7 @@ static HANDLE test_create(const char *file)
     actctx.cbSize = sizeof(ACTCTXW);
     actctx.lpSource = path;
 
-    handle = pCreateActCtxW(&actctx);
+    handle = CreateActCtxW(&actctx);
     ok(handle != INVALID_HANDLE_VALUE, "failed to create context, error %u\n", GetLastError());
 
     ok(actctx.cbSize == sizeof(actctx), "cbSize=%d\n", actctx.cbSize);
@@ -9013,13 +9057,7 @@ static void test_interthread_messages(void)
     log_all_parent_messages--;
     DestroyWindow( wnd_event.hwnd );
 
-    /* activation context tests */
-    if (!pActivateActCtx)
-    {
-        win_skip("Activation contexts are not supported, skipping\n");
-        return;
-    }
-
+    /* Activation context tests */
     create_manifest_file("testdep1.manifest", manifest_dep);
     create_manifest_file("main.manifest", manifest_main);
 
@@ -9028,7 +9066,7 @@ static void test_interthread_messages(void)
     DeleteFileA("main.manifest");
 
     handle = (void*)0xdeadbeef;
-    ret = pGetCurrentActCtx(&handle);
+    ret = GetCurrentActCtx(&handle);
     ok(ret, "GetCurrentActCtx failed: %u\n", GetLastError());
     ok(handle == 0, "active context %p\n", handle);
 
@@ -9039,14 +9077,14 @@ static void test_interthread_messages(void)
     CloseHandle(wnd_event.start_event);
 
     /* context is activated after thread creation, so it doesn't inherit it by default */
-    ret = pActivateActCtx(context, &cookie);
+    ret = ActivateActCtx(context, &cookie);
     ok(ret, "activation failed: %u\n", GetLastError());
 
     handle = 0;
-    ret = pGetCurrentActCtx(&handle);
+    ret = GetCurrentActCtx(&handle);
     ok(ret, "GetCurrentActCtx failed: %u\n", GetLastError());
     ok(handle != 0, "active context %p\n", handle);
-    pReleaseActCtx(handle);
+    ReleaseActCtx(handle);
 
     /* destination window will test for active context */
     ret = SendMessageA(wnd_event.hwnd, WM_USER+10, 0, 0);
@@ -9064,9 +9102,9 @@ static void test_interthread_messages(void)
     ok(WaitForSingleObject(hThread, INFINITE) == WAIT_OBJECT_0, "WaitForSingleObject failed\n");
     CloseHandle(hThread);
 
-    ret = pDeactivateActCtx(0, cookie);
+    ret = DeactivateActCtx(0, cookie);
     ok(ret, "DeactivateActCtx failed: %u\n", GetLastError());
-    pReleaseActCtx(context);
+    ReleaseActCtx(context);
 }
 
 
@@ -9717,12 +9755,12 @@ static LRESULT MsgCheckProc (BOOL unicode, HWND hwnd, UINT message,
 	    BOOL ret;
 
 	    handle = (void*)0xdeadbeef;
-	    ret = pGetCurrentActCtx(&handle);
+	    ret = GetCurrentActCtx(&handle);
 	    ok(ret, "failed to get current context, %u\n", GetLastError());
 	    ok(handle == 0, "got active context %p\n", handle);
 
 	    memset(&basicinfo, 0xff, sizeof(basicinfo));
-	    ret = pQueryActCtxW(QUERY_ACTCTX_FLAG_USE_ACTIVE_ACTCTX, handle, 0, ActivationContextBasicInformation,
+	    ret = QueryActCtxW(QUERY_ACTCTX_FLAG_USE_ACTIVE_ACTCTX, handle, 0, ActivationContextBasicInformation,
 	        &basicinfo, sizeof(basicinfo), NULL);
 	    ok(ret, "got %d, error %d\n", ret, GetLastError());
 	    ok(basicinfo.hActCtx == NULL, "got %p\n", basicinfo.hActCtx);
@@ -16656,7 +16694,7 @@ static void test_WaitForInputIdle( char *argv0 )
                 WaitForSingleObject( pi.hProcess, 1000 );  /* give it a chance to exit on its own */
             }
             TerminateProcess( pi.hProcess, 0 );  /* just in case */
-            winetest_wait_child_process( pi.hProcess );
+            wait_child_process( pi.hProcess );
             ret = WaitForInputIdle( pi.hProcess, 100 );
             ok( ret == WAIT_FAILED, "%u: WaitForInputIdle after exit error %08x\n", i, ret );
             CloseHandle( pi.hProcess );
@@ -17662,6 +17700,25 @@ static void test_layered_window(void)
 
 static HMENU hpopupmenu;
 
+static LRESULT WINAPI minimize_popup_proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    LRESULT ret;
+
+    if (ignore_message( message )) return 0;
+    ret = MsgCheckProc( FALSE, hwnd, message, wParam, lParam );
+
+    switch (message) {
+    case WM_ENTERIDLE:
+        ShowWindow(hwnd, SW_MINIMIZE);
+        break;
+    case WM_TIMER:
+        EndMenu();
+        break;
+    }
+
+    return ret;
+}
+
 static LRESULT WINAPI cancel_popup_proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     if (ignore_message( message )) return 0;
@@ -17743,6 +17800,21 @@ static void test_TrackPopupMenu(void)
     ret = TrackPopupMenu(hpopupmenu, 0, 100,100, 0, hwnd, NULL);
     ok_sequence(WmTrackPopupMenuAbort, "WmTrackPopupMenuAbort", TRUE);
     ok(ret == TRUE, "TrackPopupMenu failed\n");
+
+    SetWindowLongPtrA( hwnd, GWLP_WNDPROC, (LONG_PTR)minimize_popup_proc);
+
+    /* set cursor over the window, otherwise the WM_CANCELMODE message may not always be sent */
+    SetCursorPos( 0, 0 );
+    ShowWindow( hwnd, SW_SHOW );
+
+    flush_events();
+    flush_sequence();
+    SetTimer( hwnd, TIMER_ID, 500, NULL );
+    ret = TrackPopupMenu( hpopupmenu, 0, 100,100, 0, hwnd, NULL );
+    ok_sequence( WmTrackPopupMenuMinimizeWindow, "TrackPopupMenuMinimizeWindow", TRUE );
+    ok( ret == 1, "TrackPopupMenu failed with error %i\n", GetLastError() );
+    KillTimer( hwnd, TIMER_ID );
+    ShowWindow( hwnd, SW_RESTORE );
 
     SetWindowLongPtrA( hwnd, GWLP_WNDPROC, (LONG_PTR)cancel_popup_proc);
 
@@ -18166,18 +18238,35 @@ static void test_invalid_window(void)
     ok(GetLastError() == ERROR_INVALID_WINDOW_HANDLE, "wrong error %u\n", GetLastError());
 }
 
-static void init_funcs(void)
+static void test_button_style(void)
 {
-    HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+    DWORD type, expected_type;
+    HWND button;
+    LRESULT ret;
+    DWORD i, j;
 
-#define X(f) p##f = (void*)GetProcAddress(hKernel32, #f)
-    X(ActivateActCtx);
-    X(CreateActCtxW);
-    X(DeactivateActCtx);
-    X(GetCurrentActCtx);
-    X(QueryActCtxW);
-    X(ReleaseActCtx);
-#undef X
+    for (i = BS_PUSHBUTTON; i <= BS_DEFCOMMANDLINK; ++i)
+    {
+        button = CreateWindowA(WC_BUTTONA, "test", i, 0, 0, 50, 50, NULL, 0, 0, NULL);
+        ok(button != NULL, "Expected button not null.\n");
+
+        type = GetWindowLongW(button, GWL_STYLE) & BS_TYPEMASK;
+        expected_type = (i == BS_USERBUTTON ? BS_PUSHBUTTON : i);
+        ok(type == expected_type, "Expected type %#x, got %#x.\n", expected_type, type);
+
+        for (j = BS_PUSHBUTTON; j <= BS_DEFCOMMANDLINK; ++j)
+        {
+            ret = SendMessageA(button, BM_SETSTYLE, j, FALSE);
+            ok(ret == 0, "Expected %#x, got %#lx.\n", 0, ret);
+
+            type = GetWindowLongW(button, GWL_STYLE) & BS_TYPEMASK;
+            expected_type = j;
+
+            ok(type == expected_type, "Original type %#x, expected new type %#x, got %#x.\n", i,
+                    expected_type, type);
+        }
+        DestroyWindow(button);
+    }
 }
 
 START_TEST(msg)
@@ -18188,8 +18277,6 @@ START_TEST(msg)
     HMODULE hModuleImm32;
     BOOL (WINAPI *pImmDisableIME)(DWORD);
     int argc;
-
-    init_funcs();
 
     argc = winetest_get_mainargs( &test_argv );
     if (argc >= 3)
@@ -18266,6 +18353,7 @@ START_TEST(msg)
     test_mdi_messages();
     test_button_messages();
     test_button_bm_get_set_image();
+    test_button_style();
     test_autoradio_BM_CLICK();
     test_autoradio_kbd_move();
     test_static_messages();
